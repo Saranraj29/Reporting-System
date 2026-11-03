@@ -127,3 +127,13 @@ def test_auth_rate_limit(client, monkeypatch):
     get_settings.cache_clear()
     codes = [client.post("/api/v1/auth/login", json={"email": "a@acme.com", "password": "x" * 9}).status_code for _ in range(5)]
     assert codes[:3] == [401, 401, 401] and codes[3] == 429
+
+
+def test_refresh_and_logout_are_not_rate_limited(client, monkeypatch):
+    """Every page load calls /auth/refresh, so only credential endpoints are limited."""
+    monkeypatch.setenv("AUTH_RATE_LIMIT_PER_MIN", "2")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    codes = {client.post("/api/v1/auth/refresh").status_code for _ in range(6)}
+    assert codes == {401}  # no cookie: unauthorized, never 429

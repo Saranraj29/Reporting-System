@@ -1,0 +1,28 @@
+export const fmtDate = (d?: string | null) =>
+  d ? new Date(`${d.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+export const fmtShort = (d?: string | null) =>
+  d ? new Date(`${d.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—'
+export const fmtDateTime = (d?: string | null) =>
+  d ? new Date(d).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
+export const hours = (n: number) => `${Math.round(n * 10) / 10}h`
+export const isoDay = (d: Date) => {
+  const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return z.toISOString().slice(0, 10)
+}
+export const daysAgo = (n: number) => isoDay(new Date(Date.now() - n * 86400000))
+export const today = () => isoDay(new Date())
+export const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+export const titleCase = (s: string) => s.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+export const elapsed = (startIso: string, now: number) => {
+  const s = Math.max(0, Math.floor((now - new Date(startIso).getTime()) / 1000))
+  const h = String(Math.floor(s / 3600)).padStart(2, '0')
+  const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0')
+  const sec = String(s % 60).padStart(2, '0')
+  return `${h}:${m}:${sec}`
+}

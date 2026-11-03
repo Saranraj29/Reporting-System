@@ -1,0 +1,7 @@
+{
+  "name": "project-transparency-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": { "test": "node ui.cjs" },
+  "dependencies": { "playwright": "^1.49.0" }
+}

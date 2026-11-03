@@ -149,6 +149,7 @@ def _run_out(run: ReportRun, detail: bool = False, template_name: str | None = N
         "approved_at": run.approved_at.isoformat() if run.approved_at else None,
         "ai_provider": run.ai_provider, "error": run.error, "created_at": run.created_at.isoformat(),
         "downloads": _file_urls(run),
+        "client_id": tpl.get("client_id") if tpl else None,
     }
     if detail:
         out.update({
@@ -165,6 +166,18 @@ def get_run(run_id: uuid.UUID, ctx: Ctx = Depends(get_ctx)):
         raise not_found("Report run")
     _run_access(ctx, run)
     return _run_out(run, detail=True)
+
+
+@router.get("/report-runs/{run_id}/preview")
+def preview_run(run_id: uuid.UUID, ctx: Ctx = Depends(get_ctx)):
+    """The exact HTML that goes into the PDF / shared page, rendered from the stored figures and current draft text."""
+    run = ctx.db.get(ReportRun, run_id)
+    if not run:
+        raise not_found("Report run")
+    _run_access(ctx, run)
+    if run.figures is None:
+        raise conflict("not_ready", "The report has not been generated yet")
+    return {"html": runs.render_run_html(ctx.db, run, ctx.company)}
 
 
 @router.get("/report-runs")

@@ -41,7 +41,8 @@ def limit_auth(request: Request) -> None:
         raise ApiError(429, "rate_limited", "Too many attempts, try again in a minute")
 
 
-router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(limit_auth)])
+router = APIRouter(prefix="/auth", tags=["auth"])
+limited = [Depends(limit_auth)]  # only endpoints that take credentials or send mail; refresh/logout run on every page load
 
 
 class RegisterIn(BaseModel):
@@ -178,7 +179,7 @@ def domain_check(email: EmailStr, db: Session = Depends(anon_db)):
     return {"status": "create", "company_name": None}
 
 
-@router.post("/register", status_code=201)
+@router.post("/register", status_code=201, dependencies=limited)
 def register(body: RegisterIn):
     user, verified = _create_user(
         body.email, body.name, body.password, None, body.company_name, body.invite_token, verified=False
@@ -191,7 +192,7 @@ def register(body: RegisterIn):
     return out
 
 
-@router.post("/login")
+@router.post("/login", dependencies=limited)
 def login(body: LoginIn, response: Response, db: Session = Depends(anon_db)):
     row = _user_by_email(db, body.email)
     if not row or not verify_password(body.password, row.password_hash) or not row.is_active:
@@ -218,7 +219,7 @@ def verify_google_credential(credential: str) -> dict:
         raise ApiError(401, "invalid_google_token", "Google sign-in failed") from None
 
 
-@router.post("/google")
+@router.post("/google", dependencies=limited)
 def google(body: GoogleIn, response: Response):
     info = verify_google_credential(body.credential)
     email = (info.get("email") or "").lower()
@@ -308,7 +309,7 @@ def verify_email(body: TokenIn):
     return {"message": "Email verified"}
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", dependencies=limited)
 def forgot_password(body: ForgotIn, db: Session = Depends(anon_db)):
     row = _user_by_email(db, body.email)
     out: dict = {"message": "If the address is registered, a reset link has been sent"}
@@ -323,7 +324,7 @@ def forgot_password(body: ForgotIn, db: Session = Depends(anon_db)):
     return out
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", dependencies=limited)
 def reset_password(body: ResetIn):
     try:
         claims = decode_token(body.token, "reset")

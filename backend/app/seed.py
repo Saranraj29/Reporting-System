@@ -123,10 +123,10 @@ def run() -> None:
         db.add_all(TaskAssignee(company_id=cid, task_id=t.id, user_id=users[w].id) for w in who)
         if status != "todo":
             for w in who:
-                for back in rnd.sample(range(0, 14), k=rnd.randint(3, 6)):
+                for back in rnd.sample(range(0, 14), k=max(2, round(eta / len(who) / 2.2))):
                     day = today - timedelta(days=back)
                     if day.weekday() < 5:
-                        db.add(TimeEntry(company_id=cid, task_id=t.id, user_id=users[w].id, hours=rnd.choice([1.5, 2, 2.5, 3, 4]),
+                        db.add(TimeEntry(company_id=cid, task_id=t.id, user_id=users[w].id, hours=rnd.choice([1, 1.5, 2, 2.5]),
                                          entry_date=day, note=rnd.choice(["", "pairing", "review feedback", "bug fixes"])))
     for local in ("divya", "arjun", "karthik", "meera", "nisha"):
         db.add(DailyStatus(

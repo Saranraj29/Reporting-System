@@ -114,6 +114,14 @@ def test_model_questions_and_missing_sections_are_surfaced(work, monkeypatch):
     assert "What is the delivery date?" in qs and any("Work completed" in q for q in qs)
 
 
+def test_preview_shows_the_current_draft_text(work):
+    run = generate(work, make_template(work))
+    work.mgr.patch(f"/report-runs/{run['id']}", {"ai_text": {"Summary": "Preview me please."}}).raise_for_status()
+    html = work.mgr.get(f"/report-runs/{run['id']}/preview").json()["html"]
+    assert "Preview me please." in html and "Globex" in html and "Mia" not in html
+    assert work.m1.get(f"/report-runs/{run['id']}/preview").status_code == 403
+
+
 def test_edit_draft_inline_and_validation(work):
     run = generate(work, make_template(work))
     r = work.mgr.patch(f"/report-runs/{run['id']}", {"ai_text": {"Summary": "Edited by a human."}})
