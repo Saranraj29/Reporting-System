@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "_macros.html" import summary %}
+{% block body %}
+{% set c = figures.comparison %}
+<p>Compared with the previous period ({{ c.previous_period.start|d }} – {{ c.previous_period.end|d }}):
+  hours <b class="{{ 'up' if c.hours_change >= 0 else 'down' }}">{{ "%+.1f"|format(c.hours_change) }}</b>,
+  tasks completed <b class="{{ 'up' if c.tasks_completed_change >= 0 else 'down' }}">{{ "%+d"|format(c.tasks_completed_change) }}</b>.</p>
+{{ summary(figures) }}
+<h2>Week by week</h2>
+<table><tr><th>Week starting</th><th class="n">Hours</th><th class="n">Tasks completed</th></tr>
+{% for w in figures.weeks %}<tr><td>{{ w.week_start|d }}</td><td class="n">{{ w.hours }}</td><td class="n">{{ w.tasks_completed }}</td></tr>{% endfor %}</table>
+{% endblock %}

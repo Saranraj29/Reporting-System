@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kpi %}
+{% block body %}
+<div class="kpis">
+  {{ kpi(figures.totals.people, "people") }}
+  {{ kpi(figures.totals.hours, "hours logged") }}
+  {{ kpi(figures.totals.tasks_completed, "tasks completed") }}
+  {{ kpi(figures.available_hours_per_person, "available hours / person") }}
+</div>
+<h2>Individual performance</h2>
+{% if figures.people %}
+<table><tr><th>Name</th><th class="n">Hours</th><th class="n">Utilization</th><th class="n">Completed</th><th class="n">On time</th><th class="n">Avg days to complete</th><th class="n">Open</th><th class="n">Blocked</th></tr>
+{% for p in figures.people %}<tr><td>{{ p.name }}</td><td class="n">{{ p.hours }}</td><td class="n">{{ (p.utilization ~ "%") if p.utilization is not none else "–" }}</td><td class="n">{{ p.tasks_completed }}</td><td class="n">{{ (p.on_time_rate ~ "%") if p.on_time_rate is not none else "–" }}</td><td class="n">{{ p.avg_days_to_complete if p.avg_days_to_complete is not none else "–" }}</td><td class="n">{{ p.open_tasks }}</td><td class="n">{{ p.blocked_tasks }}</td></tr>{% endfor %}</table>
+{% else %}<p class="empty">No people in scope.</p>{% endif %}
+<p class="empty">Utilization = logged hours ÷ (working days × 8). On time = completed on or before the due date.</p>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% macro kpi(value, label) %}<div class="kpi"><b>{{ value }}</b><span>{{ label }}</span></div>{% endmacro %}
+{% macro summary(f) %}
+<div class="kpis">
+  {{ kpi(f.totals.hours, "hours logged") }}
+  {{ kpi(f.totals.tasks_completed, "tasks completed") }}
+  {{ kpi(f.totals.tasks_created, "tasks created") }}
+  {{ kpi(f.totals.tasks_open, "open tasks") }}
+  {{ kpi(f.totals.blocked_tasks, "blocked") }}
+  {{ kpi(f.totals.overdue_tasks, "overdue") }}
+</div>
+{% if f.projects %}
+<h2>Hours and delivery by project</h2>
+<table><tr><th>Project</th><th>Client</th><th class="n">Hours</th><th class="n">Completed</th><th class="n">Open</th></tr>
+{% for p in f.projects %}<tr><td>{{ p.project }}</td><td>{{ p.client or "–" }}</td><td class="n">{{ p.hours }}</td><td class="n">{{ p.tasks_completed }}</td><td class="n">{{ p.tasks_open }}</td></tr>{% endfor %}
+</table>{% endif %}
+{% if f.activity %}
+<h2>Hours by activity</h2>
+<table><tr><th>Activity</th><th class="n">Hours</th></tr>
+{% for a in f.activity %}<tr><td>{{ a.activity_type }}</td><td class="n">{{ a.hours }}</td></tr>{% endfor %}</table>{% endif %}
+<h2>Work completed</h2>
+{% if f.completed_tasks %}<table><tr><th>Task</th><th>Project</th><th>Completed</th><th class="n">Hours</th></tr>
+{% for t in f.completed_tasks %}<tr><td>{{ t.title }}</td><td>{{ t.project }}</td><td>{{ t.completed_on|d }}</td><td class="n">{{ t.hours }}</td></tr>{% endfor %}</table>
+{% else %}<p class="empty">No tasks were completed in this period.</p>{% endif %}
+<h2>Risks and blockers</h2>
+{% if f.blockers or f.overdue %}
+<table><tr><th>Item</th><th>Project</th><th>Issue</th></tr>
+{% for b in f.blockers %}<tr><td>{{ b.title }}</td><td>{{ b.project }}</td><td>Blocked ({{ b.priority }} priority)</td></tr>{% endfor %}
+{% for o in f.overdue %}<tr><td>{{ o.title }}</td><td>{{ o.project }}</td><td>Overdue by {{ o.days_late }} day{{ "" if o.days_late == 1 else "s" }} (due {{ o.due_date|d }})</td></tr>{% endfor %}
+</table>{% else %}<p class="empty">No blockers or overdue work.</p>{% endif %}
+{% if f.upcoming %}
+<h2>Coming up</h2>
+<table><tr><th>Task</th><th>Project</th><th>Due</th><th>Status</th></tr>
+{% for u in f.upcoming %}<tr><td>{{ u.title }}</td><td>{{ u.project }}</td><td>{{ u.due_date|d }}</td><td>{{ u.status|replace("_", " ") }}</td></tr>{% endfor %}</table>{% endif %}
+{% if f.people %}
+<h2>People</h2>
+<table><tr><th>Name</th><th class="n">Hours</th><th class="n">Tasks completed</th></tr>
+{% for p in f.people %}<tr><td>{{ p.name }}</td><td class="n">{{ p.hours }}</td><td class="n">{{ p.tasks_completed }}</td></tr>{% endfor %}</table>{% endif %}
+{% endmacro %}

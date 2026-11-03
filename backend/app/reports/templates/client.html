@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kpi %}
+{% block body %}
+{% if figures.totals %}
+<div class="kpis">
+  {{ kpi(figures.totals.hours, "hours") }}
+  {{ kpi(figures.totals.tasks_completed, "tasks completed") }}
+  {{ kpi(figures.totals.tasks_open, "open tasks") }}
+  {{ kpi(figures.totals.blocked_tasks, "blocked") }}
+</div>
+{% endif %}
+{% for name, body in sections %}
+<h2>{{ name }}</h2>
+{% for para in body|paragraphs %}<p>{{ para }}</p>{% else %}<p class="empty">—</p>{% endfor %}
+{% endfor %}
+{% endblock %}
