@@ -47,6 +47,17 @@ Useful: `make down` (stop, keep data) · `make reset` (stop and wipe database + 
 drafts instead of figures-only drafts (copy `.env.example`; Compose reads it automatically).
 The first build is slow (~5 min) because the backend image bundles Chromium for PDF export.
 
+**Troubleshooting** — login shows `Unexpected token '<' … is not valid JSON` and the browser console says `502 (Bad Gateway)` on `/api/v1/…`:
+nginx (the `web` container) cannot reach the `api` container.
+```bash
+docker compose ps                       # api must be "Up (healthy)"; migrate must be "Exited (0)"
+docker compose logs --tail 50 api migrate
+docker compose up --build -d            # recreates whatever is stale
+```
+If `api` is healthy but you still get 502 you are running an older web image that cached the API's address: `docker compose up --build -d`
+(the current `nginx.conf` re-resolves `api` every 5 s, so this only happens once, on the old image).
+Old data in a Docker volume is not the cause; `make reset` only if you want to start from an empty database.
+
 ### Local development
 ```bash
 # 1. PostgreSQL 16 with the two roles (owner for migrations, non-owner for the app so RLS applies)

@@ -119,4 +119,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with: { context: backend, push: false, cache-from: type=gha, cache-to: "type=gha,mode=max" }
       - uses: docker/build-push-action@v6
-        with: { context: frontend, push: false, cache-from: type=gha, cache-to: "type=gha,mode=max" }
+        with: { context: frontend, push: false, load: true, tags: "web:ci", cache-from: type=gha, cache-to: "type=gha,mode=max" }
+      - name: nginx config of the web image is valid
+        run: docker run --rm web:ci nginx -t
