@@ -26,6 +26,6 @@ export const elapsed = (startIso: string, now: number) => {
   const sec = String(s % 60).padStart(2, '0')
   return `${h}:${m}:${sec}`
 }
-export const providerLabel = (p?: string | null) =>
-  ({ anthropic: 'AI · Claude', openai: 'AI · OpenAI', gemini: 'AI · Gemini', figures_only: 'Figures only' } as Record<string, string>)[p ?? ''] ?? '—'
+/** The UI never names the LLM vendor: a draft is either AI-written or built from the figures only. */
+export const providerLabel = (p?: string | null) => (p === 'figures_only' ? 'Figures only' : p ? 'AI draft' : '—')
 export const isAi = (p?: string | null) => !!p && p !== 'figures_only'

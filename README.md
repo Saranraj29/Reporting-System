@@ -20,7 +20,7 @@ Three deployables, one codebase, one database:
 | ![My day](docs/screenshots/13-my-day.png) **My day** — timer, time log, daily status | ![Report review](docs/screenshots/09-report-review.png) **AI-drafted client report review** |
 | ![Shared page](docs/screenshots/11-shared-report.png) **Public client page** (no login, expires) | ![Roles](docs/screenshots/16-admin-roles.png) **Roles & permissions** (data, not code) |
 
-All 26 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
+All 25 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
 
 ## Run it
 
@@ -69,17 +69,17 @@ Demo logins (password `Demo@12345`): `priya@northwind.dev` Manager · `asha@nort
 Configuration is environment variables — see [`.env.example`](.env.example). With no `ANTHROPIC_API_KEY` the
 drafting step produces a deterministic **figures-only** draft, so the whole flow works offline.
 
-### Choosing the LLM (Anthropic, OpenAI, Gemini)
-Set any of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (and optionally `AI_PROVIDER`, `*_MODEL`, `OPENAI_BASE_URL` for
-Azure/vLLM/Ollama-style OpenAI-compatible servers) — see [`.env.example`](.env.example). `AI_PROVIDER=auto` uses the first provider that has a key.
-Each **company** can also pick its own provider, model and API key under **Settings → AI drafting** (key stored encrypted, write-only),
-with a *Test connection* button, or switch AI off. Every provider gets the same prompt with the same privacy boundary (aggregated figures only).
-Adding another provider = one function in [`services/ai.py`](backend/app/services/ai.py).
+### Choosing the LLM (Anthropic, OpenAI, Gemini) — environment only
+Set any of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (optionally `AI_PROVIDER`, `*_MODEL`, and `OPENAI_BASE_URL` for
+Azure / vLLM / Ollama-style OpenAI-compatible servers) — see [`.env.example`](.env.example). `AI_PROVIDER=auto` (default) uses the first
+provider that has a key, `none` forces figures-only drafts. **There is deliberately no UI or API for this in the current phase**: the
+provider, model and keys are platform configuration. Every provider gets the same prompt with the same privacy boundary (aggregated
+figures only). Adding another provider = one function in [`services/ai.py`](backend/app/services/ai.py).
 
 ## Tests and CI
 
 ```bash
-cd backend  && pytest          # 124 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
+cd backend  && pytest          # 125 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
 cd frontend && npm test        # 15 unit tests;  npm run typecheck;  npm run build
 cd e2e && node ui.cjs          # browser tour against the running stack (+ screenshots)
 ```
@@ -111,7 +111,7 @@ partial-failure retry, and schedule timing per company timezone.
 * **Worker** – reminders (17:30 status, 09:00 due/overdue), blocker alerts, report export, AI drafting, scheduled
   templates (Fri 16:00 / 1st), scheduled report email (Mon 07:00 / 1st), share emails; all in company time.
 * **AI** – `draft_report_text(figures, template)` ([`services/ai.py`](backend/app/services/ai.py)); one prompt, one call,
-  figures sanitised, JSON out; Anthropic / OpenAI / Gemini selectable per platform or per company (`resolve_config`).
+  figures sanitised, JSON out; Anthropic / OpenAI / Gemini selected by environment variables (`resolve_config`).
 
 ## Deliberate differences from the design document
 

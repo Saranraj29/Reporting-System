@@ -294,23 +294,16 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await ctx.close()
   }
 
-  // ---------------------------------------------------------------- AI provider settings
+  // ---------------------------------------------------------------- the LLM is environment-only: nothing in the UI
   {
     const { ctx, page } = await login(browser, 'asha')
     await page.getByRole('link', { name: 'Settings' }).click()
-    await page.getByText('AI drafting').waitFor()
-    await page.getByLabel('Provider').click()
-    const options = await page.getByRole('option').allInnerTexts()
-    check(['Anthropic', 'OpenAI', 'Gemini', 'Off'].every((n) => options.some((o) => o.includes(n))), `provider choices: ${options.join(' | ')}`)
-    await page.getByRole('option', { name: /Gemini/ }).click()
-    await page.getByLabel('API key').fill('AIza-not-a-real-key')
-    await page.getByRole('button', { name: 'Test connection' }).click()
-    await page.locator('.MuiAlert-message').filter({ hasText: /gemini|No LLM|API/i }).first().waitFor({ timeout: 30000 })
-    check(!(await page.locator('.MuiAlert-message').allInnerTexts()).join(' ').includes('AIza-not-a-real-key'), 'connection test reports a result without echoing the key')
-    await shot(page, '26-ai-provider-settings')
-    await page.getByRole('button', { name: 'Save AI settings' }).click()
-    await page.getByText('Company API key saved').waitFor()
-    check(!(await page.content()).includes('AIza-not-a-real-key'), 'the saved API key is never shown again')
+    await page.getByLabel('Company name').waitFor()
+    for (const tab of ['Company', 'Task fields', 'Notification log']) {
+      await page.getByRole('tab', { name: tab }).click()
+      const text = await page.locator('main').innerText()
+      check(!/anthropic|openai|gemini|claude|api key|llm/i.test(text), `Settings → ${tab} does not expose an LLM provider or key`)
+    }
     await ctx.close()
   }
 

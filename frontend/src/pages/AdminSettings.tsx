@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Chip, FormControlLabel, MenuItem, Paper, Stack, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material'
+import { Alert, Button, Chip, FormControlLabel, MenuItem, Paper, Stack, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
@@ -17,12 +17,7 @@ export default function AdminSettings() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Company" /><Tab label="Task fields" /><Tab label="Notification log" />
       </Tabs>
-      {tab === 0 && (
-        <Stack spacing={2.5}>
-          <Company />
-          <AiSettings />
-        </Stack>
-      )}
+      {tab === 0 && <Company />}
       {tab === 1 && <Fields />}
       {tab === 2 && <Log />}
     </>
@@ -64,61 +59,6 @@ function Company() {
         <ErrorAlert error={save.error} />
         {save.isSuccess && <Alert severity="success">Settings saved.</Alert>}
         <Button variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={() => save.mutate(undefined)} disabled={save.isPending}>Save settings</Button>
-      </Stack>
-    </Paper>
-  )
-}
-
-const PROVIDER_NAMES: Record<string, string> = { anthropic: 'Anthropic (Claude)', openai: 'OpenAI / OpenAI-compatible', gemini: 'Google Gemini' }
-
-function AiSettings() {
-  const qc = useQueryClient()
-  const s = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/settings') })
-  const [f, setF] = useState({ provider: 'default', model: '', key: '' })
-  const [test, setTest] = useState<{ ok: boolean; message: string } | null>(null)
-  useEffect(() => {
-    if (s.data) setF({ provider: s.data.ai.provider, model: s.data.ai.model ?? '', key: '' })
-  }, [s.data])
-  const ai = s.data?.ai
-  const chosen = f.provider === 'default' ? ai?.effective_provider : f.provider
-  const save = useMutation({
-    mutationFn: (extra?: object) => api.patch('/settings', { ai_provider: f.provider, ai_model: f.model, ai_api_key: f.key || undefined, ...extra }),
-    onSuccess: () => { setF((x) => ({ ...x, key: '' })); setTest(null); qc.invalidateQueries({ queryKey: ['settings'] }) },
-  })
-  const run = useMutation({
-    mutationFn: () => api.post<{ ok: boolean; message: string }>('/settings/ai/test', { provider: f.provider === 'default' || f.provider === 'none' ? undefined : f.provider, model: f.model || undefined, api_key: f.key || undefined }),
-    onSuccess: setTest,
-  })
-  return (
-    <Paper sx={{ p: 3, maxWidth: 720 }}>
-      <Stack spacing={2.5}>
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>AI drafting</Typography>
-          <Typography variant="body2" color="text.secondary">Which language model writes the client-report drafts. Only aggregated figures are ever sent; a person always approves.</Typography>
-        </Box>
-        <TextField select label="Provider" value={f.provider} onChange={(e) => { setF({ ...f, provider: e.target.value }); setTest(null) }}>
-          <MenuItem value="default">Platform default {ai ? `(currently ${ai.effective_provider === 'figures_only' ? 'figures only' : PROVIDER_NAMES[ai.effective_provider]})` : ''}</MenuItem>
-          {Object.entries(PROVIDER_NAMES).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
-          <MenuItem value="none">Off — figures-only drafts</MenuItem>
-        </TextField>
-        {f.provider !== 'none' && (
-          <>
-            <TextField label="Model" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} placeholder={chosen && ai?.defaults[chosen] ? ai.defaults[chosen] : 'provider default'} helperText="Leave empty for the default model of the chosen provider" />
-            {f.provider !== 'default' && (
-              <TextField label="API key" type="password" autoComplete="off" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })}
-                placeholder={ai?.key_configured ? 'Saved — paste a new key to replace it' : ai?.platform_providers.includes(f.provider) ? 'Optional: the platform already has a key for this provider' : 'Paste your API key'}
-                helperText="Stored encrypted and never shown again. Used only for this company." />
-            )}
-          </>
-        )}
-        {ai?.key_configured && <Stack direction="row" spacing={1} alignItems="center"><Chip size="small" color="success" label="Company API key saved" /><Button size="small" color="error" onClick={() => save.mutate({ clear_ai_key: true, ai_api_key: undefined })}>Remove key</Button></Stack>}
-        {test && <Alert severity={test.ok ? 'success' : 'error'}>{test.message}</Alert>}
-        <ErrorAlert error={save.error ?? run.error} />
-        {save.isSuccess && !test && <Alert severity="success">AI settings saved. Now using: {ai?.effective_provider === 'figures_only' ? 'figures only (no AI)' : `${PROVIDER_NAMES[ai?.effective_provider ?? '']} · ${ai?.effective_model}`}</Alert>}
-        <Stack direction="row" spacing={1}>
-          <Button variant="contained" onClick={() => save.mutate(undefined)} disabled={save.isPending}>Save AI settings</Button>
-          {f.provider !== 'none' && <Button variant="outlined" onClick={() => run.mutate()} disabled={run.isPending}>Test connection</Button>}
-        </Stack>
       </Stack>
     </Paper>
   )

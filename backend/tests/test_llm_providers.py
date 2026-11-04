@@ -1,12 +1,11 @@
-"""The LLM behind report drafting is pluggable: Anthropic, OpenAI (or any OpenAI-compatible endpoint) and Gemini,
-chosen per platform (env) or per company (Settings)."""
+"""The LLM behind report drafting is pluggable: Anthropic, OpenAI (or any OpenAI-compatible endpoint) and Gemini.
+It is chosen by environment variables only; nothing about it is exposed in the UI or the API."""
 
 import json
 
 import pytest
 
 from app.config import get_settings
-from app.security import encrypt
 from app.services import ai
 
 from .conftest import drain
@@ -27,11 +26,6 @@ def env(monkeypatch, **kv):
     for k, v in kv.items():
         monkeypatch.setenv(k.upper(), v)
     get_settings.cache_clear()
-
-
-class Company:  # stand-in for the ORM row
-    def __init__(self, provider=None, model=None, key=None):
-        self.ai_provider, self.ai_model, self.ai_api_key = provider, model, encrypt(key) if key else None
 
 
 # ---------------------------------------------------------------------------------- resolution
@@ -56,15 +50,18 @@ def test_platform_provider_can_be_forced(monkeypatch):
     assert ai.resolve_config() is None
 
 
-def test_company_settings_override_the_platform(monkeypatch):
-    env(monkeypatch, anthropic_api_key="platform-a")
-    cfg = ai.resolve_config(Company("gemini", "gemini-custom", "company-g"))
-    assert (cfg.provider, cfg.model, cfg.api_key) == ("gemini", "gemini-custom", "company-g")  # key is decrypted
-    assert ai.resolve_config(Company("none")) is None  # a company can switch AI off
-    assert ai.resolve_config(Company("openai")) is None  # chose OpenAI but no key anywhere
-    env(monkeypatch, openai_api_key="platform-o")
-    assert ai.resolve_config(Company("openai")).api_key == "platform-o"  # falls back to the platform key of that provider
-    assert ai.resolve_config(Company(None)).provider == "anthropic"  # no override: platform default
+def test_unknown_provider_or_missing_key_means_no_llm(monkeypatch):
+    env(monkeypatch, ai_provider="skynet", openai_api_key="o")
+    assert ai.resolve_config() is None
+    env(monkeypatch, ai_provider="gemini")  # forced provider without its own key: no silent fallback to another provider
+    assert ai.resolve_config() is None
+
+
+def test_openai_base_url_is_only_used_for_openai(monkeypatch):
+    env(monkeypatch, ai_provider="openai", openai_api_key="o", openai_base_url="https://llm.internal/v1")
+    assert ai.resolve_config().base_url == "https://llm.internal/v1"
+    env(monkeypatch, ai_provider="gemini", gemini_api_key="g")
+    assert ai.resolve_config().base_url is None
 
 
 # ---------------------------------------------------------------------------------- wire formats
@@ -110,7 +107,7 @@ def test_provider_http_errors_never_leak_the_key(monkeypatch, provider):
 
 
 # ---------------------------------------------------------------------------------- end to end
-def test_company_setting_drives_the_draft_and_the_key_stays_secret(work, monkeypatch, owner_conn):
+def test_env_provider_drives_the_draft_with_the_same_privacy_boundary(work, monkeypatch):
     calls = []
 
     def post(url, headers=None, json=None, timeout=None):
@@ -118,14 +115,7 @@ def test_company_setting_drives_the_draft_and_the_key_stays_secret(work, monkeyp
         return FakeResp({"choices": [{"message": {"content": REPLY}}]})
 
     monkeypatch.setattr(ai.httpx, "post", post)
-    saved = work.admin.patch("/settings", {"ai_provider": "openai", "ai_model": "gpt-company", "ai_api_key": "sk-company-secret"})
-    assert saved.status_code == 200
-    s = saved.json()["ai"]
-    assert s["provider"] == "openai" and s["model"] == "gpt-company" and s["key_configured"] and s["effective_provider"] == "openai"
-    assert "sk-company-secret" not in json.dumps(work.admin.get("/settings").json())  # the key is write-only
-    stored = owner_conn.execute("SELECT ai_api_key FROM companies").fetchone()[0]
-    assert stored and "sk-company-secret" not in stored  # encrypted at rest
-
+    env(monkeypatch, ai_provider="openai", openai_api_key="sk-env-secret", openai_model="gpt-env")
     t = make_template(work)
     r = work.mgr.post(f"/report-templates/{t['id']}/generate", window(work))
     drain()
@@ -133,38 +123,41 @@ def test_company_setting_drives_the_draft_and_the_key_stays_secret(work, monkeyp
     assert run["status"] == "drafted" and run["ai_provider"] == "openai"
     assert run["ai_text"]["Summary"] == "LLM text for Summary"
     url, headers, body = calls[0]
-    assert headers["Authorization"] == "Bearer sk-company-secret" and body["model"] == "gpt-company"
+    assert headers["Authorization"] == "Bearer sk-env-secret" and body["model"] == "gpt-env"
     user_prompt = body["messages"][1]["content"]
-    for forbidden in ("Mia", "Max", "Olive", "Hermes", "people"):  # same privacy boundary for every provider
+    for forbidden in ("Mia", "Max", "Olive", "Hermes", "people"):
         assert forbidden not in user_prompt
 
 
-def test_switching_a_company_back_to_default_or_off(work, monkeypatch):
+def test_gemini_from_env_end_to_end(work, monkeypatch):
+    seen = {}
+
+    def post(url, headers=None, json=None, timeout=None):
+        seen.update(url=url, headers=headers)
+        return FakeResp({"candidates": [{"content": {"parts": [{"text": REPLY}]}}]})
+
+    monkeypatch.setattr(ai.httpx, "post", post)
+    env(monkeypatch, gemini_api_key="g-env", gemini_model="gemini-env")
+    t = make_template(work)
+    r = work.mgr.post(f"/report-templates/{t['id']}/generate", window(work))
+    drain()
+    run = work.mgr.get(f"/report-runs/{r.json()['id']}").json()
+    assert run["ai_provider"] == "gemini" and seen["url"].endswith("gemini-env:generateContent") and seen["headers"]["x-goog-api-key"] == "g-env"
+
+
+def test_provider_none_forces_figures_only_even_with_keys(work, monkeypatch):
     monkeypatch.setattr(ai.httpx, "post", lambda *a, **k: pytest.fail("no LLM call expected"))
-    work.admin.patch("/settings", {"ai_provider": "gemini", "ai_api_key": "g"}).raise_for_status()
-    assert work.admin.get("/settings").json()["ai"]["effective_provider"] == "gemini"
-    off = work.admin.patch("/settings", {"ai_provider": "none"}).json()["ai"]
-    assert off["effective_provider"] == "figures_only"
+    env(monkeypatch, ai_provider="none", openai_api_key="o", gemini_api_key="g")
     t = make_template(work)
     r = work.mgr.post(f"/report-templates/{t['id']}/generate", window(work))
     drain()
     assert work.mgr.get(f"/report-runs/{r.json()['id']}").json()["ai_provider"] == "figures_only"
-    back = work.admin.patch("/settings", {"ai_provider": "default", "clear_ai_key": True}).json()["ai"]
-    assert back["provider"] == "default" and not back["key_configured"]
 
 
-def test_settings_validation_and_permissions(work):
-    assert work.admin.patch("/settings", {"ai_provider": "skynet"}).status_code == 422
-    assert work.mgr.patch("/settings", {"ai_provider": "openai"}).status_code == 403
-    assert work.mgr.post("/settings/ai/test").status_code == 403
-
-
-def test_connection_test_button(work, monkeypatch):
-    r = work.admin.post("/settings/ai/test").json()
-    assert r["ok"] is False and "No LLM is configured" in r["message"]
-    monkeypatch.setattr(ai.httpx, "post", lambda *a, **k: FakeResp({"choices": [{"message": {"content": '{"ok": true}'}}]}))
-    r = work.admin.post("/settings/ai/test", {"provider": "openai", "api_key": "typed-in-form", "model": "gpt-q"}).json()
-    assert r == {"ok": True, "provider": "openai", "model": "gpt-q", "message": 'openai replied: {"ok": true}'}  # works before saving
-    monkeypatch.setattr(ai.httpx, "post", lambda *a, **k: FakeResp(status=403, text="API key typed-in-form not allowed"))
-    bad = work.admin.post("/settings/ai/test", {"provider": "gemini", "api_key": "typed-in-form"}).json()
-    assert bad["ok"] is False and "403" in bad["message"] and "typed-in-form" not in bad["message"]
+def test_llm_choice_is_not_exposed_through_the_api_or_ui_settings(work, monkeypatch):
+    env(monkeypatch, openai_api_key="sk-must-not-leak")
+    s = work.admin.get("/settings").json()
+    assert "ai" not in s and "sk-must-not-leak" not in json.dumps(s)
+    assert work.admin.post("/settings/ai/test").status_code in (404, 405)  # the connection-test endpoint is gone
+    patched = work.admin.patch("/settings", {"ai_provider": "gemini", "ai_api_key": "x"}).json()  # unknown fields are ignored
+    assert "ai" not in patched

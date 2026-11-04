@@ -183,13 +183,4 @@ export interface Settings {
   report_email_day: number | null
   slack_configured: boolean
   slack_webhook_hint?: string
-  ai: {
-    provider: string
-    model: string | null
-    key_configured: boolean
-    effective_provider: string
-    effective_model: string | null
-    platform_providers: string[]
-    defaults: Record<string, string>
-  }
 }

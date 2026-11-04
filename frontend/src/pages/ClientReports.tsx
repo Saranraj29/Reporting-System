@@ -263,7 +263,7 @@ export function RunReview() {
                 <Paper sx={{ p: 2.5 }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Draft</Typography>
-                    <Chip size="small" icon={<AutoAwesomeIcon />} label={isAi(r.ai_provider) ? `Drafted by ${providerLabel(r.ai_provider).replace('AI · ', '')}` : 'Figures only — no AI narrative'} color={isAi(r.ai_provider) ? 'secondary' : 'default'} />
+                    <Chip size="small" icon={<AutoAwesomeIcon />} label={isAi(r.ai_provider) ? 'Drafted by AI' : 'Figures only — no AI narrative'} color={isAi(r.ai_provider) ? 'secondary' : 'default'} />
                   </Stack>
                   {questions.length > 0 && <Alert severity="warning" sx={{ mb: 2 }}><b>Questions from the drafter</b><ul style={{ margin: '4px 0 0 18px', padding: 0 }}>{questions.map((q) => <li key={q}>{q}</li>)}</ul></Alert>}
                   <Stack spacing={2}>

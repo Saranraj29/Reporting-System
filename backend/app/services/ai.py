@@ -10,7 +10,6 @@ from typing import Any
 import httpx
 
 from ..config import get_settings
-from ..security import decrypt
 
 FORBIDDEN_KEYS = {"people", "comments", "daily_status", "performance", "email", "emails"}
 
@@ -78,27 +77,21 @@ def _platform_key_model(provider: str) -> tuple[str | None, str]:
     }[provider]
 
 
-def resolve_config(company: Any = None, override: dict | None = None) -> LLMConfig | None:
-    """Which LLM to use: the company's own choice if set, otherwise the platform default (AI_PROVIDER, 'auto' picks the
-    first provider that has an API key). None means "no AI": drafts are built from the figures only.
-    `override` (provider/model/api_key) is used by the Settings "Test connection" button before anything is saved."""
+def resolve_config() -> LLMConfig | None:
+    """Which LLM to use. Platform configuration only (environment): AI_PROVIDER = auto | anthropic | openai | gemini | none;
+    `auto` picks the first provider that has an API key. None means "no AI": drafts are built from the figures only."""
     s = get_settings()
-    provider = (override or {}).get("provider") or getattr(company, "ai_provider", None) or s.ai_provider or "auto"
-    model_pref = (override or {}).get("model") or getattr(company, "ai_model", None)
-    key_pref = (override or {}).get("api_key") or decrypt(getattr(company, "ai_api_key", None))
+    provider = s.ai_provider or "auto"
     if provider == "none":
         return None
     if provider == "auto":
         provider = next((p for p in PROVIDERS if _platform_key_model(p)[0]), "")
-        if not provider:
-            return None
     if provider not in PROVIDERS:
         return None
-    platform_key, platform_model = _platform_key_model(provider)
-    key = key_pref or platform_key
+    key, model = _platform_key_model(provider)
     if not key:
         return None
-    return LLMConfig(provider, model_pref or platform_model, key, s.openai_base_url if provider == "openai" else None)
+    return LLMConfig(provider, model, key, s.openai_base_url if provider == "openai" else None)
 
 
 def _http_error(resp: "httpx.Response", cfg: LLMConfig) -> RuntimeError:
@@ -154,11 +147,6 @@ def _call_model(system: str, user: str, cfg: LLMConfig) -> str:
     return _CALLERS[cfg.provider](system, user, cfg)
 
 
-def ping_model(cfg: LLMConfig) -> str:
-    """Tiny round trip used by Settings → "Test connection". Returns the model's reply or raises."""
-    return _call_model('Reply with exactly this JSON and nothing else: {"ok": true}', "ping", cfg)
-
-
 def parse_model_output(raw: str, sections: list[str]) -> dict[str, Any]:
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     if not m:
@@ -212,10 +200,9 @@ def figures_only_text(figures: dict, sections: list[str]) -> dict[str, Any]:
 
 def draft_report_text(
     figures: dict, template: dict, note: str | None = None, previous: dict | None = None, figures_only: bool = False,
-    llm: LLMConfig | None | str = "platform",
+    llm: LLMConfig | None | str = "platform",  # tests / future callers may pass a resolved config
 ) -> tuple[dict[str, Any], str]:
-    """Returns (text per section, provider). `llm` is the resolved config (see resolve_config); the default looks up the
-    platform setting. Raises if a provider is configured but the call fails (the worker retries 3 times, then marks the
+    """Returns (text per section, provider). `llm` is the resolved config; by default it is looked up from the environment (resolve_config). Raises if a provider is configured but the call fails (the worker retries 3 times, then marks the
     run failed). With no provider the draft is built from the figures only."""
     sections: list[str] = list(template.get("sections", []))
     cfg = resolve_config() if llm == "platform" else llm
