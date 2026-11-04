@@ -32,6 +32,15 @@ def _label(key: str) -> str:
     return key.replace("_", " ").capitalize()
 
 
+def _cell(v: Any) -> Any:
+    """openpyxl only takes scalars: lists / dicts (e.g. a project's activities) become readable text."""
+    if isinstance(v, list):
+        return "; ".join(str(x) if not isinstance(x, dict) else ", ".join(str(y) for y in x.values()) for x in v)
+    if isinstance(v, dict):
+        return "; ".join(f"{k}: {x}" for k, x in v.items())
+    return v
+
+
 def to_xlsx(title: str, figures: dict[str, Any], sections: dict[str, str] | None = None) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
@@ -77,9 +86,9 @@ def to_xlsx(title: str, figures: dict[str, Any], sections: dict[str, str] | None
             c.font, c.fill = bold, head
         for r_i, r in enumerate(rows, 2):
             for c_i, col in enumerate(cols, 1):
-                sh.cell(r_i, c_i, r.get(col))
+                sh.cell(r_i, c_i, _cell(r.get(col)))
         for i, col in enumerate(cols, 1):
-            width = max(len(_label(col)), *(len(str(r.get(col, ""))) for r in rows)) + 2
+            width = max(len(_label(col)), *(len(str(_cell(r.get(col, "")))) for r in rows)) + 2
             sh.column_dimensions[get_column_letter(i)].width = min(width, 60)
     buf = io.BytesIO()
     wb.save(buf)
@@ -121,7 +130,7 @@ def to_docx(title: str, company_name: str, figures: dict[str, Any], sections: di
             for r in rows:
                 cells = table.add_row().cells
                 for i, col in enumerate(cols):
-                    cells[i].text = "" if r.get(col) is None else str(r.get(col))
+                    cells[i].text = "" if r.get(col) is None else str(_cell(r.get(col)))
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()

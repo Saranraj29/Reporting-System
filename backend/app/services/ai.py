@@ -13,6 +13,7 @@ from ..config import get_settings
 
 FORBIDDEN_KEYS = {
     "people", "comments", "daily_status", "performance", "email", "emails", "check_in_totals", "check_ins", "check_in_entries",
+    "owners", "team_distribution",
 }
 
 SYSTEM_PROMPT = """You write the narrative sections of a report that a company sends to its client.
@@ -200,6 +201,87 @@ def figures_only_text(figures: dict, sections: list[str]) -> dict[str, Any]:
     return out
 
 
+VIS_SYSTEM = """You write the narrative sentences of a "Project Visibility Report" for a company. All numbers, charts and tables are
+produced by the system, you only write three short pieces of text per project.
+Rules you must follow:
+1. Use ONLY the facts in the PROJECTS JSON (task titles, statuses, counts, effort split). Never invent facts, dates, causes or promises.
+2. Never mention people: no names, owners or team members.
+3. For each project return:
+   - "sprint_goal": ONE sentence stating what the project set out to deliver in this period, based on its tasks.
+   - "workflow": 3 to 6 SHORT stage names (2-4 words each) in the order the work flows, derived from the task titles and activity types.
+   - "key_achievement": ONE short line with the most notable result (a completed deliverable or the main task in flight).
+4. If something cannot be said from the data, put a short question for the reviewer in "questions" instead of guessing.
+5. Reply with a single JSON object and nothing else:
+   {"projects": {"<exact project name>": {"sprint_goal": "...", "workflow": ["...", "..."], "key_achievement": "..."}}, "questions": []}"""
+
+
+def visibility_section_keys(figures: dict) -> list[str]:
+    from ..reports import mdreport
+
+    return [mdreport.key(prefix, p["name"]) for p in figures.get("projects", []) for prefix in mdreport.SECTION_PREFIXES]
+
+
+def _flatten_visibility(per_project: dict[str, tuple[str, list[str], str]]) -> dict[str, Any]:
+    from ..reports import mdreport
+
+    out: dict[str, Any] = {}
+    for name, (goal, stages, ach) in per_project.items():
+        out[mdreport.key("Sprint goal", name)] = goal
+        out[mdreport.key("Workflow", name)] = " → ".join(stages)
+        out[mdreport.key("Key achievement", name)] = ach
+    return out
+
+
+def figures_only_visibility(figures: dict) -> dict[str, Any]:
+    from ..reports import mdreport
+
+    return _flatten_visibility({p["name"]: (mdreport.fallback_goal(p), mdreport.fallback_workflow(p), mdreport.fallback_achievement(p)) for p in figures.get("projects", [])})
+
+
+def build_visibility_prompt(figures: dict, template: dict, note: str | None, previous: dict | None) -> str:
+    clean = sanitize_figures(figures)
+    projects = [
+        {k: p[k] for k in ("name", "planned", "completed", "in_progress", "pending", "activities", "deliverables", "work_distribution") if k in p}
+        for p in clean.get("projects", [])
+    ]
+    parts = [
+        f"Report: {template.get('name', 'Project visibility report')}",
+        f"Tone instructions: {template.get('tone_instructions') or 'Professional and concise.'}",
+        "PROJECTS:\n" + json.dumps(projects, indent=1, default=str),
+    ]
+    if previous and note:
+        parts.append("PREVIOUS DRAFT:\n" + json.dumps({k: v for k, v in previous.items() if not k.startswith("_")}, indent=1))
+    if note:
+        parts.append(f"REVIEWER NOTE (apply this to the redraft): {note}")
+    return "\n\n".join(parts)
+
+
+def parse_visibility_output(raw: str, figures: dict) -> dict[str, Any]:
+    from ..reports import mdreport
+
+    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not m:
+        raise ValueError("model returned no JSON")
+    data = json.loads(m.group(0))
+    got = data.get("projects", {})
+    if not isinstance(got, dict):
+        raise ValueError("model JSON has no projects object")
+    per: dict[str, tuple[str, list[str], str]] = {}
+    questions = [str(q) for q in data.get("questions", []) if q]
+    for p in figures.get("projects", []):
+        item = got.get(p["name"]) or {}
+        goal = str(item.get("sprint_goal") or "").strip()
+        stages = [str(x).strip() for x in (item.get("workflow") or []) if str(x).strip()]
+        ach = str(item.get("key_achievement") or "").strip()
+        if not (goal and stages and ach):
+            questions.append(f"The model did not return all texts for “{p['name']}”; the missing parts use a figures-based fallback.")
+        per[p["name"]] = (goal or mdreport.fallback_goal(p), stages or mdreport.fallback_workflow(p), ach or mdreport.fallback_achievement(p))
+    out = _flatten_visibility(per)
+    if questions:
+        out["_questions"] = questions
+    return out
+
+
 def draft_report_text(
     figures: dict, template: dict, note: str | None = None, previous: dict | None = None, figures_only: bool = False,
     llm: LLMConfig | None | str = "platform",  # tests / future callers may pass a resolved config
@@ -208,6 +290,11 @@ def draft_report_text(
     run failed). With no provider the draft is built from the figures only."""
     sections: list[str] = list(template.get("sections", []))
     cfg = resolve_config() if llm == "platform" else llm
+    if template.get("base_report") == "visibility":  # per-project sentences instead of the template's section list
+        if figures_only or cfg is None:
+            return figures_only_visibility(figures), "figures_only"
+        raw = _call_model(VIS_SYSTEM, build_visibility_prompt(figures, template, note, previous), cfg)  # type: ignore[arg-type]
+        return parse_visibility_output(raw, figures), cfg.provider
     if figures_only or cfg is None:
         return figures_only_text(figures, sections), "figures_only"
     raw = _call_model(SYSTEM_PROMPT, build_user_prompt(figures, template, note, previous), cfg)  # type: ignore[arg-type]

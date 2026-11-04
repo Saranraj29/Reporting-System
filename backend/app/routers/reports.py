@@ -1,5 +1,6 @@
 """Base reports (on-screen + export), client report templates, AI-drafted runs, sharing, public page."""
 
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
@@ -20,7 +21,7 @@ from ..models import (
     ReportTemplate,
     User,
 )
-from ..reports import REGISTRY
+from ..reports import ALL, REGISTRY
 from ..reports.base import ReportContext
 from ..reports.render import render_report_html
 from ..security import decode_token, make_file_token, new_share_token
@@ -30,11 +31,12 @@ from ..services.timeutil import company_today
 
 router = APIRouter(tags=["reports"])
 CLIENT_REPORT_KEYS = ("report.template.manage", "report.ai.draft", "report.approve", "report.share.client")
-FORMATS = ("pdf", "xlsx", "docx")
+FORMATS = ("pdf", "xlsx", "docx", "md")
 MEDIA = {
     "pdf": "application/pdf",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "md": "text/markdown; charset=utf-8",
 }
 
 
@@ -53,11 +55,16 @@ def _check_report_access(ctx: Ctx, key: str):
 
 
 # --------------------------------------------------------------------------- base reports
+def ordered_reports():
+    """Registered reports in the order of reports.ALL (weekly, monthly, performance, visibility), then any others."""
+    return [*ALL, *[d for d in REGISTRY.values() if d not in ALL]]
+
+
 @router.get("/reports")
 def list_reports(ctx: Ctx = Depends(get_ctx)):
     today = company_today(ctx.company.timezone)
     items = []
-    for d in REGISTRY.values():
+    for d in ordered_reports():
         scope = ctx.scope_of(d.required_permission)
         if scope:
             start, end = d.default_period(today)
@@ -155,7 +162,7 @@ def _run_out(run: ReportRun, detail: bool = False, template_name: str | None = N
     }
     if detail:
         out.update({
-            "figures": run.figures, "ai_text": run.ai_text, "sections": tpl["sections"] if tpl else [],
+            "figures": run.figures, "ai_text": run.ai_text, "sections": runs.run_sections(run),
             "tone_instructions": tpl["tone_instructions"] if tpl else None, "redraft_note": run.redraft_note,
         })
     return out
@@ -180,6 +187,23 @@ def preview_run(run_id: uuid.UUID, ctx: Ctx = Depends(get_ctx)):
     if run.figures is None:
         raise conflict("not_ready", "The report has not been generated yet")
     return {"html": runs.render_run_html(ctx.db, run, ctx.company)}
+
+
+def _markdown_response(md: str, name: str) -> Response:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "report"
+    return Response(md, media_type=MEDIA["md"], headers={"Content-Disposition": f'attachment; filename="{safe}.md"'})
+
+
+@router.get("/report-runs/{run_id}/markdown")
+def run_markdown(run_id: uuid.UUID, ctx: Ctx = Depends(get_ctx)):
+    """The report as a Markdown file (current draft text included), available as soon as the figures exist."""
+    run = ctx.db.get(ReportRun, run_id)
+    if not run:
+        raise not_found("Report run")
+    _run_access(ctx, run)
+    if run.figures is None:
+        raise conflict("not_ready", "The report has not been generated yet")
+    return _markdown_response(runs.render_run_markdown(ctx.db, run, ctx.company), f"{runs.run_title(run)}-{run.period_start}")
 
 
 @router.get("/report-runs")
@@ -247,6 +271,8 @@ def _validate_template(ctx: Ctx, audience: str, base_report: str, sections: list
     if client_id is not None and not ctx.db.get(Client, client_id):
         raise bad_request("invalid_client", "Client does not exist")
     clean = [s.strip() for s in sections if s.strip()]
+    if base_report == "visibility":  # its sections are generated per project; the list here is only a label
+        return clean or ["Sprint goal", "Workflow", "Key achievement"]
     if not clean:
         raise bad_request("sections_required", "Add at least one section")
     if len(set(clean)) != len(clean):
@@ -353,7 +379,7 @@ def edit_draft(run_id: uuid.UUID, body: DraftPatch, ctx: Ctx = Depends(require_a
     run = _client_run(ctx, run_id)
     if run.status != "drafted":
         raise conflict("not_editable", "Only drafts that are awaiting approval can be edited")
-    allowed = set(run.params["template"]["sections"])
+    allowed = set(runs.run_sections(run))
     unknown = set(body.ai_text) - allowed
     if unknown:
         raise bad_request("unknown_section", f"Unknown sections: {', '.join(sorted(unknown))}")
@@ -495,9 +521,23 @@ def shared_report(token: str):
             "period_start": run.period_start.isoformat(), "period_end": run.period_end.isoformat(),
             "expires_at": share.expires_at.isoformat(), "html": html,
             "pdf_url": f"/api/v1/shared/{token}/pdf" if run.file_url_pdf else None,
+            "markdown_url": f"/api/v1/shared/{token}/markdown",
         }
     finally:
         db.close()
+
+
+@shared_router.get("/shared/{token}/markdown")
+def shared_markdown(token: str):
+    db, share = _open_share(token, mark_viewed=False)
+    try:
+        run = db.get(ReportRun, share.report_run_id)
+        company = db.get(Company, run.company_id)
+        md = runs.render_run_markdown(db, run, company)
+        name = f"{runs.run_title(run)}-{run.period_start}"
+    finally:
+        db.close()
+    return _markdown_response(md, name)
 
 
 @shared_router.get("/shared/{token}/pdf")

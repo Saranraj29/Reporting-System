@@ -53,10 +53,10 @@ def test_reports_require_the_matching_permission(org):
     o = org
     assert o.m1.get("/reports").json()["items"] == []
     assert o.m1.get("/reports/weekly").status_code == 403
-    assert {r["key"]: r["scope"] for r in o.lead.get("/reports").json()["items"]} == {"weekly": "team", "monthly": "team", "performance": "team"}
+    assert {r["key"]: r["scope"] for r in o.lead.get("/reports").json()["items"]} == {"weekly": "team", "monthly": "team", "performance": "team", "visibility": "team"}
     assert {r["scope"] for r in o.mgr.get("/reports").json()["items"]} == {"all"}
     admin_keys = {r["key"] for r in o.admin.get("/reports").json()["items"]}
-    assert admin_keys == {"weekly", "monthly"}  # no performance for Company Admin
+    assert admin_keys == {"weekly", "monthly", "visibility"}  # no performance for Company Admin
 
 
 def test_custom_role_and_union_of_roles(org):

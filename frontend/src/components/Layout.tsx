@@ -41,7 +41,7 @@ export function Layout() {
     { to: '/tasks', label: 'Tasks', icon: <TaskIcon />, show: hasAny('task.view') },
     { to: '/my-day', label: 'My day', icon: <TimerIcon />, show: hasAny('task.view', 'status.view') },
     { to: '/check-ins', label: 'Check-ins', icon: <GroupsIcon />, show: can('status.view.team') || can('status.view.all') },
-    { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, show: hasAny('report.weekly.view', 'report.monthly.view', 'report.performance.view') },
+    { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, show: hasAny('report.weekly.view', 'report.monthly.view', 'report.performance.view', 'report.visibility.view') },
     { to: '/client-reports', label: 'Client reports', icon: <AutoAwesomeIcon />, show: ['report.template.manage', 'report.ai.draft', 'report.approve', 'report.share.client'].some(can) },
   ]
   const admin: Item[] = [

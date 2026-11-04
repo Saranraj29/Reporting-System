@@ -148,7 +148,7 @@ export interface RunSummary {
   ai_provider: string | null
   client_id: string | null
   person_filter: string | null
-  downloads: { pdf: string | null; xlsx: string | null; docx: string | null }
+  downloads: { pdf: string | null; xlsx: string | null; docx: string | null; md: string | null }
 }
 export interface RunDetail extends RunSummary {
   figures: Record<string, any> | null

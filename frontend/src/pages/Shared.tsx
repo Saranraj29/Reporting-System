@@ -15,6 +15,7 @@ interface Shared {
   expires_at: string
   html: string
   pdf_url: string | null
+  markdown_url: string | null
 }
 
 /** Public, read-only client report page (no login). */
@@ -39,7 +40,10 @@ export default function SharedReport() {
             <Typography variant="h5">{d.title}</Typography>
             <Typography variant="body2" color="text.secondary">{fmtDate(d.period_start)} – {fmtDate(d.period_end)} · link valid until {fmtDate(d.expires_at)}</Typography>
           </Box>
-          {d.pdf_url && <Button variant="contained" startIcon={<DownloadIcon />} href={d.pdf_url}>Download PDF</Button>}
+          <Stack direction="row" spacing={1}>
+            {d.markdown_url && <Button variant="outlined" startIcon={<DownloadIcon />} href={d.markdown_url}>Download Markdown</Button>}
+            {d.pdf_url && <Button variant="contained" startIcon={<DownloadIcon />} href={d.pdf_url}>Download PDF</Button>}
+          </Stack>
         </Stack>
         <ReportFrame html={d.html} height={900} />
       </Container>

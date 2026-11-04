@@ -92,3 +92,21 @@ export function errorMessage(e: unknown): string {
   }
   return e instanceof Error ? e.message : 'Something went wrong'
 }
+
+/** Downloads an authenticated endpoint (e.g. the Markdown of a draft) as a file in the browser. */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { credentials: 'include', headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
+  if (!res.ok) {
+    const data = await res.json().catch(() => null)
+    throw new ApiError(res.status, data?.code ?? 'error', data?.message ?? res.statusText)
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}

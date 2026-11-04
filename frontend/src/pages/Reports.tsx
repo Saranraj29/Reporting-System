@@ -1,5 +1,6 @@
 import DescriptionIcon from '@mui/icons-material/DescriptionOutlined'
 import DownloadIcon from '@mui/icons-material/Download'
+import ArticleIcon from '@mui/icons-material/ArticleOutlined'
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import TableChartIcon from '@mui/icons-material/TableChartOutlined'
 import { Alert, Box, Button, CircularProgress, LinearProgress, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
@@ -47,6 +48,7 @@ export default function Reports() {
             <Button startIcon={<PictureAsPdfIcon />} variant="outlined" onClick={() => exp.mutate('pdf')} disabled={exp.isPending}>PDF</Button>
             <Button startIcon={<TableChartIcon />} variant="outlined" onClick={() => exp.mutate('xlsx')} disabled={exp.isPending}>Excel</Button>
             <Button startIcon={<DescriptionIcon />} variant="outlined" onClick={() => exp.mutate('docx')} disabled={exp.isPending}>Word</Button>
+            <Button startIcon={<ArticleIcon />} variant="outlined" onClick={() => exp.mutate('md')} disabled={exp.isPending}>Markdown</Button>
           </>
         } />
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
@@ -114,7 +116,7 @@ export function ExportRun() {
             {r.status === 'queued' && <Stack direction="row" spacing={1.5} alignItems="center"><CircularProgress size={20} /><Typography>Rendering…</Typography></Stack>}
             {r.error && <Alert severity="error">{r.error}</Alert>}
             <Stack direction="row" spacing={1}>
-              {(['pdf', 'xlsx', 'docx'] as const).map((f) => r.downloads[f] && <Button key={f} variant="contained" startIcon={<DownloadIcon />} href={r.downloads[f]!}>{f.toUpperCase()}</Button>)}
+              {(['pdf', 'xlsx', 'docx', 'md'] as const).map((f) => r.downloads[f] && <Button key={f} variant="contained" startIcon={<DownloadIcon />} href={r.downloads[f]!}>{f === 'md' ? 'Markdown' : f.toUpperCase()}</Button>)}
             </Stack>
             <Typography variant="caption" color="text.secondary">Download links are signed and valid for one hour — reopen this page for a fresh one.</Typography>
           </Stack>

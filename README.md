@@ -20,7 +20,7 @@ Three deployables, one codebase, one database:
 | ![My day](docs/screenshots/13-my-day.png) **My day** — timer, time log, daily status | ![Report review](docs/screenshots/09-report-review.png) **AI-drafted client report review** |
 | ![Shared page](docs/screenshots/11-shared-report.png) **Public client page** (no login, expires) | ![Roles](docs/screenshots/16-admin-roles.png) **Roles & permissions** (data, not code) |
 
-All 28 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
+All 30 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
 
 ## Run it
 
@@ -90,7 +90,7 @@ figures only). Adding another provider = one function in [`services/ai.py`](back
 ## Tests and CI
 
 ```bash
-cd backend  && pytest          # 141 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
+cd backend  && pytest          # 163 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
 cd frontend && npm test        # 15 unit tests;  npm run typecheck;  npm run build
 cd e2e && node ui.cjs          # browser tour against the running stack (+ screenshots); needs a fresh seed and
                                # AUTH_RATE_LIMIT_PER_MIN=0 on the API (the tour logs in ~13 times from one IP)
@@ -122,6 +122,13 @@ partial-failure retry, and schedule timing per company timezone.
   midnight, company timezone). Tracked everywhere: *My day* form, team **Check-ins** page (who posted, who is missing, blockers, log),
   dashboard cards, the weekly/monthly report (per-person completion rates + the log; internal reports only, never sent to a client or an LLM),
   and reminders (10:00 "share your plan", 17:30 "post your end-of-day update").
+* **Project visibility report (the Markdown layout)** – a base report (`visibility`) per project: header table (period, project, owners, status),
+  sprint goal + KPI row (planned / completed / in progress / pending / progress %), status pie, workflow, current activities, completed
+  deliverables, work-distribution pie, and for several projects the *Combined Sprint Health*, *Summary Dashboard* and *Team Work Distribution*.
+  All numbers are computed in code; as a client or internal **template** the AI only writes three sentences per project (sprint goal, workflow
+  stages, key achievement) from figures without names, a person reviews/edits them, then approves. Download as **.md** (mermaid charts for GitHub/
+  GitLab/VS Code), PDF, Word or Excel; the on-screen/PDF version draws the charts as SVG. Every other report can be downloaded as `.md` too.
+  A real sample: [`docs/examples/project-visibility-report.md`](docs/examples/project-visibility-report.md) (figures-only fallback text, no AI key).
 * **Project owners** – a project can have owners (Admin → Projects & clients). An owner sees every task, comment, time entry and
   dashboard figure inside that project, whoever created it or is assigned to it (view only; editing still follows `task.edit.*`,
   and daily-status text is never widened). Company Admin, Manager and CEO/CTO hold `…view.all`, so they see every project.

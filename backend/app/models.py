@@ -249,6 +249,7 @@ class ReportRun(Base, Stamps):
     file_url_pdf: Mapped[str | None] = mapped_column(Text)
     file_url_xlsx: Mapped[str | None] = mapped_column(Text)
     file_url_docx: Mapped[str | None] = mapped_column(Text)
+    file_url_md: Mapped[str | None] = mapped_column(Text)
 
 
 class ReportShare(Base, Stamps):

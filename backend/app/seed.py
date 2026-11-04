@@ -158,6 +158,15 @@ def run() -> None:
         client_id=clients["Contoso Retail"].id, schedule="weekly",
     ))
     db.add(ReportTemplate(
+        company_id=cid, name="Contoso project visibility report", audience="client", base_report="visibility", format="narrative",
+        sections=["Sprint goal", "Workflow", "Key achievement"], tone_instructions="Factual and concise, no internal names.",
+        client_id=clients["Contoso Retail"].id, schedule="none",
+    ))
+    db.add(ReportTemplate(
+        company_id=cid, name="Leadership visibility report (all projects)", audience="internal", base_report="visibility", format="narrative",
+        sections=["Sprint goal", "Workflow", "Key achievement"], tone_instructions="Management summary.", client_id=None, schedule="none",
+    ))
+    db.add(ReportTemplate(
         company_id=cid, name="Fabrikam monthly summary", audience="client", base_report="monthly", format="bullet_summary",
         sections=["Summary", "Work completed", "Risks and blockers"], tone_instructions="Concise bullets, friendly tone.",
         client_id=clients["Fabrikam"].id, schedule="monthly",

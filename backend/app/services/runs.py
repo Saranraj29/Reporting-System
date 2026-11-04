@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..models import Client, Company, ReportRun, ReportTemplate
 from ..reports import REGISTRY
 from ..reports.base import ReportContext, month_bounds, week_start
-from ..reports.render import render_report_html
+from ..reports.render import markdown_for, render_report_html
 from . import exporters, storage
 from .timeutil import company_today
 
@@ -65,13 +65,26 @@ def client_name_for(db: Session, run: ReportRun) -> str | None:
     return None
 
 
-def render_run_html(db: Session, run: ReportRun, company: Company) -> str:
+def run_sections(run: ReportRun) -> list[str]:
+    """Section names of a run: dynamic ones stored by the drafting step (visibility report: per project), else the template's."""
     tpl = run.params.get("template")
-    return render_report_html(
-        run.report_key, run.figures or {}, company.name, title=run_title(run),
-        sections=run.ai_text if (tpl and run.ai_text is not None) else None,
-        section_order=tpl["sections"] if tpl else None, client_name=client_name_for(db, run),
+    return list(run.params.get("sections") or (tpl["sections"] if tpl else []))
+
+
+def _kwargs(db: Session, run: ReportRun) -> dict:
+    tpl = run.params.get("template")
+    return dict(
+        title=run_title(run), sections=run.ai_text if (tpl and run.ai_text is not None) else None,
+        section_order=run_sections(run) if tpl else None, client_name=client_name_for(db, run),
     )
+
+
+def render_run_html(db: Session, run: ReportRun, company: Company) -> str:
+    return render_report_html(run.report_key, run.figures or {}, company.name, **_kwargs(db, run))
+
+
+def render_run_markdown(db: Session, run: ReportRun, company: Company) -> str:
+    return markdown_for(run.report_key, run.figures or {}, company.name, **_kwargs(db, run))
 
 
 def build_files(db: Session, run: ReportRun, company: Company, formats: list[str]) -> None:
@@ -79,7 +92,9 @@ def build_files(db: Session, run: ReportRun, company: Company, formats: list[str
     sections = run.ai_text if run.params.get("template") else None
     base = f"{company.id}/{run.id}/report"
     for fmt in formats:
-        if fmt == "pdf":
+        if fmt == "md":
+            data = render_run_markdown(db, run, company).encode()
+        elif fmt == "pdf":
             data = exporters.to_pdf(html)
         elif fmt == "xlsx":
             data = exporters.to_xlsx(run_title(run), run.figures or {}, sections)

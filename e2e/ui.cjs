@@ -89,7 +89,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
 
     await page.getByRole('link', { name: 'Reports', exact: true }).click()
     await page.waitForSelector('iframe')
-    check((await page.getByRole('tab').count()) === 3, 'manager sees weekly, monthly and performance reports')
+    check((await page.getByRole('tab').count()) === 4, 'manager sees weekly, monthly, performance and project visibility reports')
     await shot(page, '06-report-weekly')
     await page.getByRole('tab', { name: /Performance/ }).click()
     await page.waitForTimeout(800)
@@ -99,7 +99,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByRole('link', { name: 'Client reports' }).click()
     await page.getByText('Contoso weekly client update').waitFor()
     await shot(page, '08-client-templates')
-    await page.getByRole('button', { name: 'Generate' }).first().click()
+    await page.locator('.MuiPaper-root', { hasText: 'Contoso weekly client update' }).getByRole('button', { name: 'Generate' }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click() // default: last complete week, whole team
     await page.getByText('Figures the draft is built from').waitFor({ timeout: 60000 })
     check(await page.getByLabel('Summary').isVisible(), 'draft appears after the worker finishes')
@@ -171,7 +171,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     check(links.includes('Reports') && !links.includes('Client reports'), `lead nav: ${links.join(', ')}`)
     await page.getByRole('link', { name: 'Reports', exact: true }).click()
     await page.waitForSelector('iframe')
-    check((await page.getByRole('tab').count()) === 3, 'lead sees weekly, monthly and performance (team scope)')
+    check((await page.getByRole('tab').count()) === 4, 'lead sees weekly, monthly, performance and visibility (team scope)')
     await ctx.close()
   }
 
@@ -361,6 +361,39 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.waitForTimeout(1200)
     const rep = await page.frameLocator('iframe').locator('body').innerText()
     check(rep.includes('Daily check-ins') && rep.includes('Karthik Rao'), 'weekly report tracks morning and end-of-day check-ins')
+    await ctx.close()
+  }
+
+  // ---------------------------------------------------------------- project visibility report + Markdown downloads
+  {
+    const { ctx, page } = await login(browser, 'priya')
+    await page.getByRole('link', { name: 'Reports', exact: true }).click()
+    await page.waitForSelector('iframe')
+    await page.getByRole('tab', { name: /Project visibility/ }).click()
+    await page.waitForTimeout(1500)
+    const frame = page.frameLocator('iframe')
+    const text = await frame.locator('body').innerText()
+    check(text.includes('Project Visibility Report') && text.includes('Sprint Goal & Objectives') && text.includes('Combined Sprint Health Dashboard'), 'visibility report renders in the agreed layout')
+    check((await frame.locator('svg').count()) >= 3 && (await frame.locator('.flow .node').count()) >= 3, 'charts and the workflow are drawn (SVG), not mermaid source')
+    await shot(page, '29-visibility-report')
+    // download as Markdown
+    await page.getByRole('button', { name: 'Markdown' }).click()
+    const link = page.getByRole('link', { name: 'Download' })
+    await link.waitFor({ timeout: 60000 })
+    const md = await (await page.request.get(await link.getAttribute('href').then((h) => new URL(h, BASE).toString()))).text()
+    check(md.includes('# 📊 Project Visibility Report —') && md.includes('```mermaid') && md.includes('| 🎯 Planned Tasks | ✅ Completed |'), 'the .md export contains the visibility layout with mermaid charts')
+
+    // AI-assisted client version: generate -> review -> download .md
+    await page.getByRole('link', { name: 'Client reports' }).click()
+    await page.getByText('Contoso project visibility report').waitFor()
+    await page.locator('.MuiPaper-root', { hasText: 'Contoso project visibility report' }).getByRole('button', { name: 'Generate' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click()
+    await page.getByLabel(/^Sprint goal — /).first().waitFor({ timeout: 60000 })
+    check(true, 'visibility drafts get one Sprint goal / Workflow / Key achievement set per project')
+    await shot(page, '30-visibility-review')
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download .md' }).click()])
+    const body = require('fs').readFileSync(await dl.path(), 'utf8')
+    check(dl.suggestedFilename().endsWith('.md') && body.includes('> **Sprint Goal:**') && !body.includes('| **Owner**'), 'draft downloads as Markdown without internal names')
     await ctx.close()
   }
 

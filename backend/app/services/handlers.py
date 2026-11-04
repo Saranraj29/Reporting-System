@@ -181,7 +181,7 @@ def report_generate(db: Session, job: Job) -> None:
 
 @handler("report.draft")
 def report_draft(db: Session, job: Job) -> None:
-    from .ai import draft_report_text
+    from .ai import draft_report_text, visibility_section_keys
 
     run = _run(db, job)
     company = _company(db, job)
@@ -192,6 +192,8 @@ def report_draft(db: Session, job: Job) -> None:
         run.figures, tpl, note=run.redraft_note, previous=run.ai_text, figures_only=bool(job.payload.get("figures_only")),
     )
     run.ai_text, run.ai_provider, run.error, run.status = ai_text, provider, None, "drafted"
+    if tpl.get("base_report") == "visibility":  # one set of sections per project, known only now
+        run.params = {**run.params, "sections": visibility_section_keys(run.figures)}
     db.commit()
     if tpl["audience"] == "internal":  # internal reports skip approval and sharing
         jobs.enqueue(db, "report.finalize", job.company_id, {"run_id": str(run.id), "mark_ready": True})
@@ -208,7 +210,7 @@ def report_draft(db: Session, job: Job) -> None:
 @handler("report.finalize")
 def report_finalize(db: Session, job: Job) -> None:
     run = _run(db, job)
-    runs.build_files(db, run, _company(db, job), ["pdf", "docx", "xlsx"])
+    runs.build_files(db, run, _company(db, job), ["pdf", "docx", "xlsx", "md"])
     if job.payload.get("mark_ready"):
         run.status = "ready"
     db.commit()

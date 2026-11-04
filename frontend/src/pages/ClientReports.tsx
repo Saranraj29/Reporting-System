@@ -3,6 +3,7 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/EditOutlined'
 import SendIcon from '@mui/icons-material/SendOutlined'
+import ArticleIcon from '@mui/icons-material/ArticleOutlined'
 import {
   Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Grid, IconButton,
   MenuItem, Paper, Stack, Step, StepLabel, Stepper, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Tooltip, Typography,
@@ -10,7 +11,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
-import { api } from '../api'
+import { api, downloadFile } from '../api'
 import { useAuth } from '../auth'
 import { ConfirmDialog, Empty, ErrorAlert, PageHeader, ReportFrame, RunStatusChip } from '../components/ui'
 import { fmtDate, fmtDateTime, isAi, providerLabel, titleCase } from '../format'
@@ -142,7 +143,7 @@ function TemplateDialog({ template, onClose }: { template: Template | null; onCl
   const [sections, setSections] = useState<string[]>(template?.sections ?? DEFAULT_SECTIONS)
   const save = useMutation({
     mutationFn: () => {
-      const body = { ...f, client_id: f.client_id || null, sections }
+      const body = { ...f, client_id: f.client_id || null, sections: f.base_report === 'visibility' ? [] : sections }
       return template ? api.patch(`/report-templates/${template.id}`, body) : api.post('/report-templates', body)
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['templates'] }); onClose() },
@@ -162,11 +163,19 @@ function TemplateDialog({ template, onClose }: { template: Template | null; onCl
             <TextField select fullWidth label="Base report" value={f.base_report} onChange={(e) => setF({ ...f, base_report: e.target.value })}>
               <MenuItem value="weekly">Weekly</MenuItem>
               <MenuItem value="monthly">Monthly</MenuItem>
+              <MenuItem value="visibility">Project visibility (Markdown layout)</MenuItem>
               {!client && <MenuItem value="performance">Performance</MenuItem>}
             </TextField>
           </Stack>
+          {f.base_report === 'visibility' && (
+            <Alert severity="info" icon={<ArticleIcon />}>
+              Uses the <b>Project Visibility Report</b> layout: header table, sprint goal and KPI row, status / work-distribution charts, workflow, activities, deliverables
+              and — for several projects — the combined dashboards. Numbers come from your data; the AI only writes the sprint goal, workflow stages and key
+              achievement for each project. Download it as Markdown, PDF, Word or Excel.
+            </Alert>
+          )}
           <Stack direction="row" spacing={2}>
-            <TextField select fullWidth label="Format" value={f.format} onChange={(e) => setF({ ...f, format: e.target.value })}>
+            <TextField select fullWidth label="Format" disabled={f.base_report === 'visibility'} value={f.format} onChange={(e) => setF({ ...f, format: e.target.value })}>
               <MenuItem value="narrative">Narrative (prose)</MenuItem>
               <MenuItem value="bullet_summary">Bullet summary</MenuItem>
               <MenuItem value="table_commentary">Table + commentary</MenuItem>
@@ -181,14 +190,14 @@ function TemplateDialog({ template, onClose }: { template: Template | null; onCl
             <MenuItem value="">None</MenuItem>
             {clients.data?.items.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
           </TextField>
-          <Autocomplete multiple freeSolo options={DEFAULT_SECTIONS} value={sections} onChange={(_, v) => setSections(v as string[])} renderTags={(v, getTagProps) => v.map((o, i) => <Chip {...getTagProps({ index: i })} key={o} label={o} size="small" />)} renderInput={(p) => <TextField {...p} label="Sections" helperText="Press Enter to add; order is kept" />} />
+          {f.base_report !== 'visibility' && <Autocomplete multiple freeSolo options={DEFAULT_SECTIONS} value={sections} onChange={(_, v) => setSections(v as string[])} renderTags={(v, getTagProps) => v.map((o, i) => <Chip {...getTagProps({ index: i })} key={o} label={o} size="small" />)} renderInput={(p) => <TextField {...p} label="Sections" helperText="Press Enter to add; order is kept" />} />}
           <TextField label="Tone instructions" multiline minRows={2} value={f.tone_instructions} onChange={(e) => setF({ ...f, tone_instructions: e.target.value })} placeholder="Formal, no internal names, round hours to the nearest half hour, keep it to one page" />
           <ErrorAlert error={save.error} />
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={!f.name || sections.length === 0 || (client && !f.client_id) || save.isPending} onClick={() => save.mutate()}>Save template</Button>
+        <Button variant="contained" disabled={!f.name || (f.base_report !== 'visibility' && sections.length === 0) || (client && !f.client_id) || save.isPending} onClick={() => save.mutate()}>Save template</Button>
       </DialogActions>
     </Dialog>
   )
@@ -216,6 +225,7 @@ export function RunReview() {
   const invalidate = () => { qc.invalidateQueries({ queryKey: ['run', id] }); qc.invalidateQueries({ queryKey: ['report-runs'] }) }
   const save = useMutation({ mutationFn: () => api.patch(`/report-runs/${id}`, { ai_text: text }), onSuccess: () => { setDirty(false); invalidate() } })
   const redraft = useMutation({ mutationFn: (figures_only: boolean) => api.post(`/report-runs/${id}/redraft`, { note, figures_only }), onSuccess: () => { setDirty(false); setNote(''); invalidate() } })
+  const md = useMutation({ mutationFn: () => downloadFile(`/report-runs/${id}/markdown`, 'report.md') })
   const approve = useMutation({ mutationFn: async () => { if (dirty) await api.patch(`/report-runs/${id}`, { ai_text: text }); return api.post(`/report-runs/${id}/approve`) }, onSuccess: () => { setConfirm(false); setDirty(false); invalidate() } })
 
   if (run.isLoading) return <CircularProgress />
@@ -225,7 +235,9 @@ export function RunReview() {
   const questions: string[] = (r.ai_text?._questions as string[] | undefined) ?? []
   return (
     <>
-      <PageHeader title={r.title} subtitle={`${fmtDate(r.period_start)} – ${fmtDate(r.period_end)}${r.person_filter ? ' · filtered to one person (name not included in the report)' : ''}`} actions={<RunStatusChip status={r.status} />} />
+      <PageHeader title={r.title} subtitle={`${fmtDate(r.period_start)} – ${fmtDate(r.period_end)}${r.person_filter ? ' · filtered to one person (name not included in the report)' : ''}`}
+        actions={<>{f && <Button size="small" variant="outlined" startIcon={<ArticleIcon />} onClick={() => md.mutate()} disabled={md.isPending}>Download .md</Button>}<RunStatusChip status={r.status} /></>} />
+      <ErrorAlert error={md.error} />
       <Paper sx={{ p: 2.5, mb: 2.5 }}>
         <Stepper activeStep={stepIndex(r.status)} alternativeLabel>{STEPS.map((s) => <Step key={s}><StepLabel>{s}</StepLabel></Step>)}</Stepper>
         {r.approved_at && <Typography variant="caption" color="text.secondary" display="block" align="center" sx={{ mt: 1 }}>Approved {fmtDateTime(r.approved_at)}</Typography>}
@@ -309,7 +321,7 @@ function SharePanel({ run }: { run: RunDetail }) {
     <Paper sx={{ p: 2.5, mt: 2.5 }}>
       <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.5 }}>Final files & sharing</Typography>
       <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-        {(['pdf', 'docx', 'xlsx'] as const).map((k) => run.downloads[k] ? <Button key={k} size="small" variant="outlined" startIcon={<DownloadIcon />} href={run.downloads[k]!}>{k.toUpperCase()}</Button> : <Chip key={k} size="small" label={`${k.toUpperCase()} rendering…`} />)}
+        {(['pdf', 'docx', 'xlsx', 'md'] as const).map((k) => run.downloads[k] ? <Button key={k} size="small" variant="outlined" startIcon={<DownloadIcon />} href={run.downloads[k]!}>{k === 'md' ? 'Markdown' : k.toUpperCase()}</Button> : <Chip key={k} size="small" label={`${k === 'md' ? 'MARKDOWN' : k.toUpperCase()} rendering…`} />)}
       </Stack>
       {can('report.share.client') ? (
         <>

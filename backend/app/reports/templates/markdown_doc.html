@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ title }}</title>
+<style>
+  :root { --ink:#1b2430; --muted:#5b6776; --line:#e3e8ef; --brand:#2b59c3; --soft:#f4f7fc; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); margin: 0; padding: 32px 40px; background:#fff; }
+  h1 { font-size: 22px; margin: 34px 0 10px; color: var(--ink); border-bottom: 3px solid var(--brand); padding-bottom: 6px; }
+  h1:first-of-type { margin-top: 0; }
+  h2 { font-size: 16px; margin: 22px 0 8px; color: var(--brand); }
+  p { margin: 6px 0; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 22px 0; }
+  blockquote { margin: 10px 0; padding: 10px 16px; background: var(--soft); border-left: 4px solid var(--brand); border-radius: 0 8px 8px 0; }
+  blockquote p { margin: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+  th { text-align: left; background: var(--soft); color: var(--muted); font-weight: 600; }
+  th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table:has(th:empty) th { display: none; }
+  figure.chart { margin: 10px 0 16px; }
+  figure.chart figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  figure.pie .row { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+  figure.pie ul { list-style: none; margin: 0; padding: 0; }
+  figure.pie li { margin: 4px 0; }
+  figure.pie .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 16px; }
+  .flow .node { background: var(--soft); border: 1px solid #c9d6f3; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
+  .flow .arrow { color: var(--brand); font-weight: 700; }
+  code { background: #eef1f6; padding: 1px 5px; border-radius: 4px; }
+  pre { background:#f3f5f9; padding: 12px; border-radius: 8px; overflow-x: auto; }
+  @media print { body { padding: 0; } h1 { break-after: avoid; } svg, figure { break-inside: avoid; } tr { break-inside: avoid; } }
+</style>
+</head>
+<body>
+{{ body|safe }}
+</body>
+</html>

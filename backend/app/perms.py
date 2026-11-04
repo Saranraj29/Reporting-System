@@ -21,6 +21,8 @@ PERMISSIONS: dict[str, str] = {
     "report.monthly.view.all": "Monthly report (company)",
     "report.performance.view.team": "Performance report (team)",
     "report.performance.view.all": "Performance report (company)",
+    "report.visibility.view.team": "Project visibility report (team)",
+    "report.visibility.view.all": "Project visibility report (company)",
     "report.template.manage": "Manage report templates",
     "report.ai.draft": "Generate AI-drafted client reports",
     "report.approve": "Approve client reports",
@@ -33,8 +35,8 @@ PERMISSIONS: dict[str, str] = {
 
 _ADMIN = ["user.manage", "role.manage", "project.manage", "settings.manage"]
 _CLIENT = ["report.template.manage", "report.ai.draft", "report.approve", "report.share.client"]
-_REPORTS_ALL = [f"report.{r}.view.all" for r in ("weekly", "monthly", "performance")]
-_REPORTS_TEAM = [f"report.{r}.view.team" for r in ("weekly", "monthly", "performance")]
+_REPORTS_ALL = [f"report.{r}.view.all" for r in ("weekly", "monthly", "performance", "visibility")]
+_REPORTS_TEAM = [f"report.{r}.view.team" for r in ("weekly", "monthly", "performance", "visibility")]
 
 DEFAULT_ROLE = "Team Member"
 
@@ -59,7 +61,7 @@ SEEDED_ROLES: dict[str, tuple[str, list[str]]] = {
         "Users, roles, projects, settings, Slack link (no performance reports unless also given that key)",
         [
             *_ADMIN, "task.view.all", "task.edit.all", "status.view.all", "dashboard.view.all",
-            "report.weekly.view.all", "report.monthly.view.all", "report.template.manage",
+            "report.weekly.view.all", "report.monthly.view.all", "report.visibility.view.all", "report.template.manage",
         ],
     ),
 }
