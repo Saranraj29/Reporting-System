@@ -405,13 +405,18 @@ def redraft(run_id: uuid.UUID, body: RedraftIn | None = None, ctx: Ctx = Depends
     return {"id": str(run.id), "status": run.status}
 
 
+STATE_WORDS = {"queued": "still being drafted", "failed": "in a failed state: redraft it first", "ready": "already final"}
+
+
 @router.post("/report-runs/{run_id}/approve")
 def approve(run_id: uuid.UUID, ctx: Ctx = Depends(require("report.approve"))):
     run = _client_run(ctx, run_id)
-    if run.status != "drafted":
-        raise conflict("not_approvable", "Only drafted reports can be approved")
     if run.params["template"]["audience"] != "client":
-        raise conflict("not_approvable", "Internal reports do not need approval")
+        raise conflict("internal_report", "Internal reports do not need approval: download the finished files from this page")
+    if run.status in ("approved", "sent"):  # double click, second tab: the report is already approved, nothing more to do
+        return _run_out(run, detail=True)
+    if run.status != "drafted":
+        raise conflict("not_approvable", f"This report is {STATE_WORDS.get(run.status, run.status)} and cannot be approved right now")
     run.status, run.approved_by, run.approved_at = "approved", ctx.me.id, datetime.now(UTC)
     jobs.enqueue(ctx.db, "report.finalize", ctx.company_id, {"run_id": str(run.id)})
     ctx.db.commit()

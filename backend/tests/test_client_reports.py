@@ -183,7 +183,8 @@ def test_full_flow_approve_share_and_public_page(work):
     ok = work.mgr.post(f"/report-runs/{run['id']}/approve")
     assert ok.status_code == 200 and ok.json()["status"] == "approved" and ok.json()["approved_at"]
     assert ok.json()["approved_by"] == work.mgr.user_id
-    assert work.mgr.post(f"/report-runs/{run['id']}/approve").status_code == 409
+    again = work.mgr.post(f"/report-runs/{run['id']}/approve")  # approving twice is harmless
+    assert again.status_code == 200 and again.json()["approved_at"] == ok.json()["approved_at"]
     drain()  # the worker renders the final files
     done = work.mgr.get(f"/report-runs/{run['id']}").json()
     assert all(done["downloads"][f] for f in ("pdf", "docx", "xlsx"))

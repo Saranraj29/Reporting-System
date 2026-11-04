@@ -206,12 +206,15 @@ function TemplateDialog({ template, onClose }: { template: Template | null; onCl
 // ----------------------------------------------------------------------------------------------
 const STEPS = ['Drafted', 'Approved', 'Sent']
 const stepIndex = (s: string) => ({ queued: -1, failed: -1, drafted: 0, approved: 1, sent: 2, ready: 2 }[s] ?? -1)
+// internal reports skip approval and sharing: draft -> files rendered -> ready to download
+const INTERNAL_STEPS = ['Drafted', 'Ready to download']
+const internalStep = (s: string) => ({ queued: -1, failed: -1, drafted: 0, ready: 2 }[s] ?? -1)
 
 export function RunReview() {
   const { id } = useParams()
   const qc = useQueryClient()
   const { can } = useAuth()
-  const run = useQuery({ queryKey: ['run', id], queryFn: () => api.get<RunDetail>(`/report-runs/${id}`), refetchInterval: (q) => (['queued', 'approved'].includes(q.state.data?.status ?? '') ? 2000 : false) })
+  const run = useQuery({ queryKey: ['run', id], queryFn: () => api.get<RunDetail>(`/report-runs/${id}`), refetchInterval: (q) => { const d = q.state.data; return d && (['queued', 'approved'].includes(d.status) || (d.audience === 'internal' && d.status === 'drafted')) ? 2000 : false } })
   const r = run.data
   const [text, setText] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState(false)
@@ -226,11 +229,12 @@ export function RunReview() {
   const save = useMutation({ mutationFn: () => api.patch(`/report-runs/${id}`, { ai_text: text }), onSuccess: () => { setDirty(false); invalidate() } })
   const redraft = useMutation({ mutationFn: (figures_only: boolean) => api.post(`/report-runs/${id}/redraft`, { note, figures_only }), onSuccess: () => { setDirty(false); setNote(''); invalidate() } })
   const md = useMutation({ mutationFn: () => downloadFile(`/report-runs/${id}/markdown`, 'report.md') })
-  const approve = useMutation({ mutationFn: async () => { if (dirty) await api.patch(`/report-runs/${id}`, { ai_text: text }); return api.post(`/report-runs/${id}/approve`) }, onSuccess: () => { setConfirm(false); setDirty(false); invalidate() } })
+  const approve = useMutation({ mutationFn: async () => { if (dirty) await api.patch(`/report-runs/${id}`, { ai_text: text }); return api.post(`/report-runs/${id}/approve`) }, onSuccess: () => { setConfirm(false); setDirty(false); invalidate() }, onError: () => { setConfirm(false); invalidate() } })
 
   if (run.isLoading) return <CircularProgress />
   if (!r) return <ErrorAlert error={run.error} />
-  const editable = r.status === 'drafted' && (can('report.ai.draft') || can('report.approve'))
+  const internal = r.audience === 'internal'
+  const editable = r.status === 'drafted' && !internal && (can('report.ai.draft') || can('report.approve'))
   const f = r.figures
   const questions: string[] = (r.ai_text?._questions as string[] | undefined) ?? []
   return (
@@ -239,7 +243,7 @@ export function RunReview() {
         actions={<>{f && <Button size="small" variant="outlined" startIcon={<ArticleIcon />} onClick={() => md.mutate()} disabled={md.isPending}>Download .md</Button>}<RunStatusChip status={r.status} /></>} />
       <ErrorAlert error={md.error} />
       <Paper sx={{ p: 2.5, mb: 2.5 }}>
-        <Stepper activeStep={stepIndex(r.status)} alternativeLabel>{STEPS.map((s) => <Step key={s}><StepLabel>{s}</StepLabel></Step>)}</Stepper>
+        <Stepper activeStep={internal ? internalStep(r.status) : stepIndex(r.status)} alternativeLabel>{(internal ? INTERNAL_STEPS : STEPS).map((s) => <Step key={s}><StepLabel>{s}</StepLabel></Step>)}</Stepper>
         {r.approved_at && <Typography variant="caption" color="text.secondary" display="block" align="center" sx={{ mt: 1 }}>Approved {fmtDateTime(r.approved_at)}</Typography>}
       </Paper>
       {r.status === 'queued' && <Alert severity="info" icon={<CircularProgress size={18} />} sx={{ mb: 2 }}>Drafting in the background — this page updates automatically.</Alert>}
@@ -296,15 +300,24 @@ export function RunReview() {
                       </Stack>
                     </>
                   )}
-                  {r.status === 'drafted' && !can('report.approve') && <Typography variant="caption" color="text.secondary">You need approval permission to approve this report.</Typography>}
+                  {r.status === 'drafted' && !internal && !can('report.approve') && <Typography variant="caption" color="text.secondary">You need approval permission to approve this report.</Typography>}
                 </Paper>
               </Grid>
             </Grid>
           )}
         </>
       )}
+      {internal && (
+        <Paper sx={{ p: 2.5, mt: 2.5 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>Internal report</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Internal reports do not need approval or sharing. The final files are rendered automatically.</Typography>
+          {r.status === 'ready' ? (
+            <Stack direction="row" spacing={1}>{(['pdf', 'docx', 'xlsx', 'md'] as const).map((k) => r.downloads[k] && <Button key={k} size="small" variant="outlined" startIcon={<DownloadIcon />} href={r.downloads[k]!}>{k === 'md' ? 'Markdown' : k.toUpperCase()}</Button>)}</Stack>
+          ) : r.status === 'drafted' ? <Stack direction="row" spacing={1.5} alignItems="center"><CircularProgress size={18} /><Typography variant="body2">Rendering the final files…</Typography></Stack> : null}
+        </Paper>
+      )}
       {['approved', 'sent'].includes(r.status) && <SharePanel run={r} />}
-      <ConfirmDialog open={confirm} title="Approve this report?" confirmLabel="Approve" body="Nothing is sent to the client yet. Approving locks the text and renders the final PDF, Word and Excel files. Your name and the time are recorded." onClose={() => setConfirm(false)} onConfirm={() => approve.mutate()} />
+      <ConfirmDialog open={confirm} title="Approve this report?" confirmLabel="Approve" body="Nothing is sent to the client yet. Approving locks the text and renders the final PDF, Word and Excel files. Your name and the time are recorded." onClose={() => setConfirm(false)} onConfirm={() => approve.mutate()} busy={approve.isPending} />
     </>
   )
 }

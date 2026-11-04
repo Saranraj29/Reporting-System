@@ -397,6 +397,21 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await ctx.close()
   }
 
+  // ---------------------------------------------------------------- internal reports need no approval
+  {
+    const { ctx, page } = await login(browser, 'priya')
+    await page.getByRole('link', { name: 'Client reports' }).click()
+    await page.getByText('Leadership visibility report (all projects)').waitFor()
+    await page.locator('.MuiPaper-root', { hasText: 'Leadership visibility report (all projects)' }).getByRole('button', { name: 'Generate' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click()
+    await page.getByText('Internal reports do not need approval or sharing').waitFor({ timeout: 60000 })
+    check((await page.getByRole('button', { name: 'Approve' }).count()) === 0, 'internal report pages offer no Approve button')
+    await page.getByRole('link', { name: 'Markdown' }).waitFor({ timeout: 60000 }) // flips to ready by itself, no manual refresh
+    check(true, 'an internal report becomes ready on its own and offers its downloads')
+    await shot(page, '31-internal-report-ready')
+    await ctx.close()
+  }
+
   // ---------------------------------------------------------------- phone
   {
     const { ctx, page } = await login(browser, 'priya', { width: 390, height: 844 })

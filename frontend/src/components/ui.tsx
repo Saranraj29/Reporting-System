@@ -92,14 +92,14 @@ export function Empty({ children }: { children: ReactNode }) {
   )
 }
 
-export function ConfirmDialog({ open, title, body, confirmLabel = 'Confirm', onClose, onConfirm, danger }: { open: boolean; title: string; body: ReactNode; confirmLabel?: string; onClose: () => void; onConfirm: () => void; danger?: boolean }) {
+export function ConfirmDialog({ open, title, body, confirmLabel = 'Confirm', onClose, onConfirm, danger, busy }: { open: boolean; title: string; body: ReactNode; confirmLabel?: string; onClose: () => void; onConfirm: () => void; danger?: boolean; busy?: boolean }) {
   return (
     <Dialog open={open} onClose={onClose}>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>{body}</DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" color={danger ? 'error' : 'primary'} onClick={onConfirm}>
+        <Button variant="contained" color={danger ? 'error' : 'primary'} onClick={onConfirm} disabled={busy}>
           {confirmLabel}
         </Button>
       </DialogActions>

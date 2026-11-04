@@ -90,7 +90,7 @@ figures only). Adding another provider = one function in [`services/ai.py`](back
 ## Tests and CI
 
 ```bash
-cd backend  && pytest          # 163 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
+cd backend  && pytest          # 166 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
 cd frontend && npm test        # 15 unit tests;  npm run typecheck;  npm run build
 cd e2e && node ui.cjs          # browser tour against the running stack (+ screenshots); needs a fresh seed and
                                # AUTH_RATE_LIMIT_PER_MIN=0 on the API (the tour logs in ~13 times from one IP)
