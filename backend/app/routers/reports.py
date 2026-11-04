@@ -18,6 +18,7 @@ from ..models import (
     ReportRun,
     ReportShare,
     ReportTemplate,
+    User,
 )
 from ..reports import REGISTRY
 from ..reports.base import ReportContext
@@ -105,7 +106,7 @@ def export_report(key: str, body: ExportIn | None = None, format: str = "pdf", c
         company_id=ctx.company_id, report_key=key, period_start=rc.start, period_end=rc.end, requested_by=ctx.me.id,
         export_format=format, status="queued",
         scope_user_ids=None if rc.scope_user_ids is None else [str(u) for u in rc.scope_user_ids],
-        params={"project": str(body.project) if body.project else None, "user": None},
+        params={"project": str(body.project) if body.project else None, "user": str(body.user) if body.user else None},
     )
     ctx.db.add(run)
     ctx.db.flush()
@@ -150,6 +151,7 @@ def _run_out(run: ReportRun, detail: bool = False, template_name: str | None = N
         "ai_provider": run.ai_provider, "error": run.error, "created_at": run.created_at.isoformat(),
         "downloads": _file_urls(run),
         "client_id": tpl.get("client_id") if tpl else None,
+        "person_filter": (run.params or {}).get("user"),
     }
     if detail:
         out.update({
@@ -300,6 +302,7 @@ def delete_template(template_id: uuid.UUID, ctx: Ctx = Depends(require("report.t
 class GenerateIn(BaseModel):
     from_: date | None = Field(default=None, alias="from")
     to: date | None = None
+    user: uuid.UUID | None = None  # optional: only work by this person (never named in client text or sent to the AI)
 
 
 @router.post("/report-templates/{template_id}/generate", status_code=202)
@@ -319,9 +322,12 @@ def generate_from_template(template_id: uuid.UUID, body: GenerateIn | None = Non
     start, end = (body.from_, body.to) if body.from_ and body.to else runs.previous_full_period(t.base_report, today)
     if end < start or (end - start).days > 400:
         raise bad_request("invalid_range", "Choose a valid date range of at most 400 days")
+    if body.user and not ctx.db.get(User, body.user):
+        raise bad_request("invalid_user", "Person does not exist")
     run = ReportRun(
         company_id=ctx.company_id, template_id=t.id, report_key=t.base_report, period_start=start, period_end=end,
-        requested_by=ctx.me.id, status="queued", scope_user_ids=scope, params={"template": runs.template_snapshot(t)},
+        requested_by=ctx.me.id, status="queued", scope_user_ids=scope,
+        params={"template": runs.template_snapshot(t), "user": str(body.user) if body.user else None},
     )
     ctx.db.add(run)
     ctx.db.flush()

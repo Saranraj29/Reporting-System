@@ -45,6 +45,9 @@ export const theme = createTheme({
   components: {
     MuiPaper: { defaultProps: { elevation: 0 }, styleOverrides: { root: { border: '1px solid #e4e8f0' } } },
     MuiButton: { defaultProps: { disableElevation: true } },
+    // An empty option ("All projects", "Anyone", "None") must show its text instead of a blank box
+    MuiSelect: { defaultProps: { displayEmpty: true } },
+    MuiTextField: { defaultProps: { InputLabelProps: { shrink: true } } },
     MuiTableCell: { styleOverrides: { head: { fontWeight: 600, color: '#5d6879', background: '#f9fafc' } } },
     MuiChip: { styleOverrides: { root: { fontWeight: 600 } } },
   },

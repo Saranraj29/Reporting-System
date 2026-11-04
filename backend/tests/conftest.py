@@ -20,7 +20,7 @@ os.environ.update(
     DATABASE_URL=f"postgresql+psycopg://rs_app:rs_app@{host}/{DB}",
     JWT_SECRET="test-secret-test-secret-test-secret-0123", PLATFORM_KEY="test-platform-key",
     EMAIL_BACKEND="console", STORAGE_DIR=STORAGE, AUTH_RATE_LIMIT_PER_MIN="0",
-    ANTHROPIC_API_KEY="", GOOGLE_CLIENT_ID="test-client", JOB_BACKOFF_SECONDS="0",
+    ANTHROPIC_API_KEY="", OPENAI_API_KEY="", GEMINI_API_KEY="", AI_PROVIDER="auto", GOOGLE_CLIENT_ID="test-client", JOB_BACKOFF_SECONDS="0",
     PUBLIC_WEB_URL="http://web.test", BCRYPT_ROUNDS="4",
 )
 if not os.environ.get("CHROMIUM_PATH") and Path("/opt/pw-browsers/chromium").is_file():

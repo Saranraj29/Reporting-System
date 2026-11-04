@@ -4,9 +4,13 @@ Swapping providers means changing `_call_model` only."""
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
+import httpx
+
 from ..config import get_settings
+from ..security import decrypt
 
 FORBIDDEN_KEYS = {"people", "comments", "daily_status", "performance", "email", "emails"}
 
@@ -53,15 +57,106 @@ def build_user_prompt(figures: dict, template: dict, note: str | None, previous:
     return "\n\n".join(parts)
 
 
-def _call_model(system: str, user: str) -> str:
+# ----------------------------------------------------------------------------- providers
+PROVIDERS = ("anthropic", "openai", "gemini")
+
+
+@dataclass(frozen=True)
+class LLMConfig:
+    provider: str  # anthropic | openai | gemini
+    model: str
+    api_key: str
+    base_url: str | None = None
+
+
+def _platform_key_model(provider: str) -> tuple[str | None, str]:
+    s = get_settings()
+    return {
+        "anthropic": (s.anthropic_api_key, s.anthropic_model),
+        "openai": (s.openai_api_key, s.openai_model),
+        "gemini": (s.gemini_api_key, s.gemini_model),
+    }[provider]
+
+
+def resolve_config(company: Any = None, override: dict | None = None) -> LLMConfig | None:
+    """Which LLM to use: the company's own choice if set, otherwise the platform default (AI_PROVIDER, 'auto' picks the
+    first provider that has an API key). None means "no AI": drafts are built from the figures only.
+    `override` (provider/model/api_key) is used by the Settings "Test connection" button before anything is saved."""
+    s = get_settings()
+    provider = (override or {}).get("provider") or getattr(company, "ai_provider", None) or s.ai_provider or "auto"
+    model_pref = (override or {}).get("model") or getattr(company, "ai_model", None)
+    key_pref = (override or {}).get("api_key") or decrypt(getattr(company, "ai_api_key", None))
+    if provider == "none":
+        return None
+    if provider == "auto":
+        provider = next((p for p in PROVIDERS if _platform_key_model(p)[0]), "")
+        if not provider:
+            return None
+    if provider not in PROVIDERS:
+        return None
+    platform_key, platform_model = _platform_key_model(provider)
+    key = key_pref or platform_key
+    if not key:
+        return None
+    return LLMConfig(provider, model_pref or platform_model, key, s.openai_base_url if provider == "openai" else None)
+
+
+def _http_error(resp: "httpx.Response", cfg: LLMConfig) -> RuntimeError:
+    body = resp.text[:300].replace(cfg.api_key, "***")
+    return RuntimeError(f"{cfg.provider} API returned {resp.status_code}: {body}")
+
+
+def _call_anthropic(system: str, user: str, cfg: LLMConfig) -> str:
     import anthropic
 
-    s = get_settings()
-    client = anthropic.Anthropic(api_key=s.anthropic_api_key, max_retries=1, timeout=60)
-    msg = client.messages.create(
-        model=s.anthropic_model, max_tokens=2500, system=system, messages=[{"role": "user", "content": user}]
-    )
+    client = anthropic.Anthropic(api_key=cfg.api_key, max_retries=1, timeout=60)
+    msg = client.messages.create(model=cfg.model, max_tokens=2500, system=system, messages=[{"role": "user", "content": user}])
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+
+
+def _call_openai(system: str, user: str, cfg: LLMConfig) -> str:
+    resp = httpx.post(
+        f"{(cfg.base_url or 'https://api.openai.com/v1').rstrip('/')}/chat/completions",
+        headers={"Authorization": f"Bearer {cfg.api_key}"},
+        json={
+            "model": cfg.model, "temperature": 0.3, "response_format": {"type": "json_object"},
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        },
+        timeout=60,
+    )
+    if resp.status_code >= 400:
+        raise _http_error(resp, cfg)
+    return resp.json()["choices"][0]["message"]["content"] or ""
+
+
+def _call_gemini(system: str, user: str, cfg: LLMConfig) -> str:
+    resp = httpx.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.model}:generateContent",
+        headers={"x-goog-api-key": cfg.api_key},
+        json={
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {"temperature": 0.3, "responseMimeType": "application/json"},
+        },
+        timeout=60,
+    )
+    if resp.status_code >= 400:
+        raise _http_error(resp, cfg)
+    parts = resp.json()["candidates"][0]["content"]["parts"]
+    return "".join(p.get("text", "") for p in parts)
+
+
+_CALLERS = {"anthropic": _call_anthropic, "openai": _call_openai, "gemini": _call_gemini}
+
+
+def _call_model(system: str, user: str, cfg: LLMConfig) -> str:
+    """The only provider-specific code path: one prompt in, text out. Add a provider = add a function above."""
+    return _CALLERS[cfg.provider](system, user, cfg)
+
+
+def ping_model(cfg: LLMConfig) -> str:
+    """Tiny round trip used by Settings → "Test connection". Returns the model's reply or raises."""
+    return _call_model('Reply with exactly this JSON and nothing else: {"ok": true}', "ping", cfg)
 
 
 def parse_model_output(raw: str, sections: list[str]) -> dict[str, Any]:
@@ -116,12 +211,15 @@ def figures_only_text(figures: dict, sections: list[str]) -> dict[str, Any]:
 
 
 def draft_report_text(
-    figures: dict, template: dict, note: str | None = None, previous: dict | None = None, figures_only: bool = False
+    figures: dict, template: dict, note: str | None = None, previous: dict | None = None, figures_only: bool = False,
+    llm: LLMConfig | None | str = "platform",
 ) -> tuple[dict[str, Any], str]:
-    """Returns (text per section, provider). Raises if the provider is configured but the call fails
-    (the worker retries 3 times, then marks the run failed)."""
+    """Returns (text per section, provider). `llm` is the resolved config (see resolve_config); the default looks up the
+    platform setting. Raises if a provider is configured but the call fails (the worker retries 3 times, then marks the
+    run failed). With no provider the draft is built from the figures only."""
     sections: list[str] = list(template.get("sections", []))
-    if figures_only or not get_settings().anthropic_api_key:
+    cfg = resolve_config() if llm == "platform" else llm
+    if figures_only or cfg is None:
         return figures_only_text(figures, sections), "figures_only"
-    raw = _call_model(SYSTEM_PROMPT, build_user_prompt(figures, template, note, previous))
-    return parse_model_output(raw, sections), "anthropic"
+    raw = _call_model(SYSTEM_PROMPT, build_user_prompt(figures, template, note, previous), cfg)  # type: ignore[arg-type]
+    return parse_model_output(raw, sections), cfg.provider

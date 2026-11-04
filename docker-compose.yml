@@ -13,7 +13,14 @@ x-api-env: &api-env
   PLATFORM_KEY: ${PLATFORM_KEY:-dev-platform-key-change-me}
   PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
   WEB_ORIGIN: ${PUBLIC_WEB_URL:-http://localhost:8080}
+  AI_PROVIDER: ${AI_PROVIDER:-auto}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   EMAIL_BACKEND: ${EMAIL_BACKEND:-console}
   STORAGE_DIR: /data/files

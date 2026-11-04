@@ -1,18 +1,20 @@
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import StopIcon from '@mui/icons-material/Stop'
 import SearchIcon from '@mui/icons-material/Search'
 import {
   Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControlLabel, Grid, IconButton,
   InputAdornment, LinearProgress, MenuItem, Pagination, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api'
 import { useAuth } from '../auth'
 import { AssigneeAvatars, Empty, ErrorAlert, PageHeader, PriorityChip, StatusChip } from '../components/ui'
-import { fmtDate, fmtDateTime, hours, today } from '../format'
+import { elapsed, fmtDate, fmtDateTime, hours, today } from '../format'
 import { STATUS_LABELS } from '../theme'
+import { useNow, useRunningTimer, useTimerActions } from '../timer'
 import type { Page, Project, Task, TaskField, TimeEntry, UserLite } from '../types'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -29,6 +31,15 @@ export default function Tasks() {
   const { projects, users } = useLookups()
   const [page, setPage] = useState(1)
   const [f, setF] = useState({ q: '', project: '', status: '', priority: '', assignee: '', overdue: false })
+  const [search, setSearch] = useState('')
+  const upd = (patch: Partial<typeof f>) => {
+    setF((prev) => ({ ...prev, ...patch }))
+    setPage(1) // changing a filter goes back to page 1 in the same render (one request, no flicker)
+  }
+  useEffect(() => {
+    const t = setTimeout(() => search !== f.q && upd({ q: search }), 300) // debounce typing
+    return () => clearTimeout(t)
+  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
   const [dialog, setDialog] = useState<Task | 'new' | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const canEdit = hasAny('task.edit')
@@ -37,9 +48,8 @@ export default function Tasks() {
   const q = useQuery({
     queryKey: ['tasks', page, f],
     queryFn: () => api.get<Page<Task>>('/tasks', { page, limit: 15, q: f.q, project: f.project, status: f.status, priority: f.priority, assignee: f.assignee, overdue: f.overdue || undefined }),
-    placeholderData: (prev) => prev,
+    placeholderData: keepPreviousData,
   })
-  useEffect(() => setPage(1), [f])
 
   return (
     <>
@@ -51,36 +61,36 @@ export default function Tasks() {
       <Paper sx={{ p: 2, mb: 2.5 }}>
         <Grid container spacing={1.5} alignItems="center">
           <Grid item xs={12} md={3}>
-            <TextField size="small" fullWidth placeholder="Search tasks" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }} />
+            <TextField size="small" fullWidth placeholder="Search tasks" value={search} onChange={(e) => setSearch(e.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }} />
           </Grid>
           <Grid item xs={6} md={2}>
-            <TextField select size="small" fullWidth label="Project" value={f.project} onChange={(e) => setF({ ...f, project: e.target.value })}>
+            <TextField select size="small" fullWidth label="Project" value={f.project} onChange={(e) => upd({ project: e.target.value })}>
               <MenuItem value="">All</MenuItem>
               {projects.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
             </TextField>
           </Grid>
           <Grid item xs={6} md={2}>
-            <TextField select size="small" fullWidth label="Status" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+            <TextField select size="small" fullWidth label="Status" value={f.status} onChange={(e) => upd({ status: e.target.value })}>
               <MenuItem value="">All</MenuItem>
               {Object.entries(STATUS_LABELS).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
             </TextField>
           </Grid>
           <Grid item xs={6} md={1.5}>
-            <TextField select size="small" fullWidth label="Priority" value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
+            <TextField select size="small" fullWidth label="Priority" value={f.priority} onChange={(e) => upd({ priority: e.target.value })}>
               <MenuItem value="">All</MenuItem>
               {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
             </TextField>
           </Grid>
           {showPeople && (
             <Grid item xs={6} md={2}>
-              <TextField select size="small" fullWidth label="Assignee" value={f.assignee} onChange={(e) => setF({ ...f, assignee: e.target.value })}>
+              <TextField select size="small" fullWidth label="Assignee" value={f.assignee} onChange={(e) => upd({ assignee: e.target.value })}>
                 <MenuItem value="">Anyone</MenuItem>
                 {users.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
               </TextField>
             </Grid>
           )}
           <Grid item xs={12} md="auto">
-            <FormControlLabel control={<Switch size="small" checked={f.overdue} onChange={(e) => setF({ ...f, overdue: e.target.checked })} />} label="Overdue" />
+            <FormControlLabel control={<Switch size="small" checked={f.overdue} onChange={(e) => upd({ overdue: e.target.checked })} />} label="Overdue" />
           </Grid>
         </Grid>
       </Paper>
@@ -273,7 +283,10 @@ function TaskDrawer({ id, onClose, onEdit, canLog }: { id: string | null; onClos
   const addComment = useMutation({ mutationFn: () => api.post(`/tasks/${id}/comments`, { body: comment }), onSuccess: () => { setComment(''); qc.invalidateQueries({ queryKey: ['comments', id] }) } })
   const setStatus = useMutation({ mutationFn: (status: string) => api.patch(`/tasks/${id}`, { status }), onSuccess: refresh })
   const logTime = useMutation({ mutationFn: () => api.post('/time-entries', { task_id: id, hours: Number(log.hours), entry_date: today(), note: log.note }), onSuccess: () => { setLog({ hours: '', note: '' }); refresh() } })
-  const startTimer = useMutation({ mutationFn: () => api.post('/time-entries/start', { task_id: id }), onSuccess: () => qc.invalidateQueries({ queryKey: ['running'] }) })
+  const running = useRunningTimer().data
+  const { start, stop } = useTimerActions()
+  const now = useNow()
+  const runningHere = !!running && running.task_id === id
 
   return (
     <Drawer anchor="right" open={!!id} onClose={onClose} PaperProps={{ sx: { width: { xs: '100%', sm: 480 }, p: 3 } }}>
@@ -312,10 +325,26 @@ function TaskDrawer({ id, onClose, onEdit, canLog }: { id: string | null; onClos
                 <TextField size="small" type="number" label="Hours" value={log.hours} onChange={(e) => setLog({ ...log, hours: e.target.value })} sx={{ width: 100 }} inputProps={{ min: 0.25, max: 24, step: 0.25 }} />
                 <TextField size="small" label="Note" value={log.note} onChange={(e) => setLog({ ...log, note: e.target.value })} fullWidth />
                 <Button variant="contained" disabled={!log.hours || logTime.isPending} onClick={() => logTime.mutate()}>Add</Button>
-                <IconButton title="Start timer" color="primary" onClick={() => startTimer.mutate()}><PlayArrowIcon /></IconButton>
               </Stack>
-              {(logTime.error || startTimer.error) && <Alert severity="error">{errorMessage(logTime.error ?? startTimer.error)}</Alert>}
-              {startTimer.isSuccess && <Alert severity="success">Timer started — stop it from “My day”.</Alert>}
+              {(logTime.error || start.error || stop.error) && <Alert severity="error">{errorMessage(logTime.error ?? start.error ?? stop.error)}</Alert>}
+              <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, bgcolor: runningHere ? '#fff5f5' : '#f9fafc', borderColor: runningHere ? '#ffc9c9' : undefined }}>
+                {runningHere && running?.started_at ? (
+                  <>
+                    <Box><Typography variant="caption" color="error" sx={{ fontWeight: 700 }}>TIMER RUNNING</Typography><Typography variant="h6" sx={{ fontVariantNumeric: 'tabular-nums' }}>{elapsed(running.started_at, now)}</Typography></Box>
+                    <Button variant="contained" color="error" startIcon={<StopIcon />} disabled={stop.isPending} onClick={() => stop.mutate(running.id)}>Stop timer</Button>
+                  </>
+                ) : running ? (
+                  <>
+                    <Typography variant="body2">A timer is already running on <b>{running.task_title}</b>.</Typography>
+                    <Button variant="outlined" color="error" size="small" startIcon={<StopIcon />} disabled={stop.isPending} onClick={() => stop.mutate(running.id)}>Stop it</Button>
+                  </>
+                ) : (
+                  <>
+                    <Typography variant="body2" color="text.secondary">Track time as you work</Typography>
+                    <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={start.isPending} onClick={() => start.mutate(id!)}>Start timer</Button>
+                  </>
+                )}
+              </Paper>
             </Stack>
           )}
           <Box>

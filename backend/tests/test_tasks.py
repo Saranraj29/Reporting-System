@@ -207,3 +207,15 @@ def test_company_timezone_decides_which_day_is_today(org):
     assert o.m1.put(f"/daily-status/{local}", {"did_today": "tz"}).status_code == 200
 
 
+
+
+def test_running_timer_endpoint(org):
+    o = org
+    t = mk(o.m1, o.project["id"], "Timed")
+    assert o.m1.get("/time-entries/running").json() is None
+    e = o.m1.post("/time-entries/start", {"task_id": t["id"]}).json()
+    r = o.m1.get("/time-entries/running").json()
+    assert r["id"] == e["id"] and r["running"] and r["task_title"] == "Timed"
+    assert o.m2.get("/time-entries/running").json() is None  # per user
+    o.m1.post(f"/time-entries/{e['id']}/stop").raise_for_status()
+    assert o.m1.get("/time-entries/running").json() is None

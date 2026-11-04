@@ -39,6 +39,9 @@ class Company(Base, Stamps):
     slack_webhook_url: Mapped[str | None] = mapped_column(Text)
     report_email_day: Mapped[int | None] = mapped_column(SmallInteger, default=0)
     timezone: Mapped[str] = mapped_column(Text, default="UTC")
+    ai_provider: Mapped[str | None] = mapped_column(Text)  # NULL = platform default
+    ai_model: Mapped[str | None] = mapped_column(Text)
+    ai_api_key: Mapped[str | None] = mapped_column(Text)  # encrypted
 
 
 class User(Base, Stamps):

@@ -177,7 +177,7 @@ def report_generate(db: Session, job: Job) -> None:
 
 @handler("report.draft")
 def report_draft(db: Session, job: Job) -> None:
-    from .ai import draft_report_text
+    from .ai import draft_report_text, resolve_config
 
     run = _run(db, job)
     company = _company(db, job)
@@ -185,7 +185,8 @@ def report_draft(db: Session, job: Job) -> None:
     if not run.figures or job.payload.get("recompute", True):
         run.figures = runs.compute_figures(db, run, company)
     ai_text, provider = draft_report_text(
-        run.figures, tpl, note=run.redraft_note, previous=run.ai_text, figures_only=bool(job.payload.get("figures_only"))
+        run.figures, tpl, note=run.redraft_note, previous=run.ai_text, figures_only=bool(job.payload.get("figures_only")),
+        llm=resolve_config(company),  # the company's own provider/model/key, else the platform default
     )
     run.ai_text, run.ai_provider, run.error, run.status = ai_text, provider, None, "drafted"
     db.commit()

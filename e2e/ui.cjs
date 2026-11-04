@@ -100,6 +100,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByText('Contoso weekly client update').waitFor()
     await shot(page, '08-client-templates')
     await page.getByRole('button', { name: 'Generate' }).first().click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click() // default: last complete week, whole team
     await page.getByText('Figures the draft is built from').waitFor({ timeout: 60000 })
     check(await page.getByLabel('Summary').isVisible(), 'draft appears after the worker finishes')
     await page.getByLabel('Summary').fill('A steady week for Contoso: the redesigned landing page and responsive navigation shipped, and checkout testing is under way.')
@@ -218,6 +219,98 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     check(body.includes('Offline mode sync engine') && body.includes('Push notification service'), 'project owner sees every task in the owned project')
     check(!body.includes('Payment gateway sandbox access'), 'project owner does not see tasks of other projects')
     await shot(page, '21-project-owner-tasks')
+    await ctx.close()
+  }
+
+  // ---------------------------------------------------------------- usability regressions (reported from real use)
+  {
+    // 1) a running timer is visible and stoppable from every page, including the task drawer
+    let { ctx, page } = await login(browser, 'divya')
+    const stopBtn = page.locator('header button:has-text("Stop")') // CSS: the drawer (a modal) aria-hides the header
+    await page.waitForTimeout(1500) // let the running-timer query load
+    if (await stopBtn.isVisible()) { await stopBtn.click(); await stopBtn.waitFor({ state: 'detached' }) } // leftovers from earlier runs
+    await page.getByRole('link', { name: 'Tasks' }).click()
+    await page.waitForSelector('tbody tr')
+    await page.locator('tbody tr').first().click()
+    await page.getByRole('button', { name: 'Start timer' }).click()
+    await stopBtn.waitFor()
+    check(true, 'timer started from the task drawer shows live in the header')
+    await page.getByRole('button', { name: 'Stop timer' }).waitFor()
+    check(true, 'the drawer offers Stop for the running timer')
+    await shot(page, '22-timer-running')
+    await page.keyboard.press('Escape') // close the drawer
+    await page.getByRole('link', { name: 'My day' }).click()
+    await page.getByText(/^\d\d:\d\d:\d\d$/).first().waitFor()
+    check(await page.getByRole('button', { name: 'Stop' }).first().isVisible(), 'My day shows the same running timer immediately (no stale cache)')
+    await stopBtn.click()
+    await stopBtn.waitFor({ state: 'detached' })
+    await page.getByRole('button', { name: 'Start' }).waitFor()
+    check(true, 'Stop in the header ends the timer everywhere')
+    await ctx.close()
+
+    // 2) "All ..." options show their text, 3) changing filters keeps old content on screen (no blink)
+    ;({ ctx, page } = await login(browser, 'priya'))
+    await page.waitForSelector('svg.recharts-surface')
+    await page.getByRole('combobox', { name: /^Project/ }).click()
+    await page.getByRole('option', { name: 'Mobile App' }).click()
+    await page.getByRole('combobox', { name: /^Project/ }).click()
+    await page.getByRole('option', { name: 'All projects' }).click()
+    check((await page.locator('.MuiSelect-select').filter({ hasText: 'All projects' }).count()) === 1, 'dashboard project filter shows "All projects" instead of an empty box')
+    check((await page.locator('.MuiSelect-select').filter({ hasText: 'Everyone' }).count()) === 1, 'dashboard person filter shows "Everyone"')
+    await page.evaluate(() => {
+      window.__flicker = 0
+      new MutationObserver(() => { if (document.querySelector('.MuiSkeleton-root') || !document.querySelector('svg.recharts-surface')) window.__flicker++ }).observe(document.body, { childList: true, subtree: true })
+    })
+    for (const name of ['Mobile App', 'Website Revamp', 'All projects']) {
+      await page.getByRole('combobox', { name: /^Project/ }).click()
+      await page.getByRole('option', { name }).click()
+      await page.waitForTimeout(700)
+    }
+    check((await page.evaluate(() => window.__flicker)) === 0, 'changing dashboard filters never blanks the page (no skeleton, charts stay mounted)')
+    await shot(page, '23-dashboard-filters')
+    await page.getByRole('link', { name: 'Tasks' }).click()
+    await page.waitForSelector('tbody tr')
+    await page.getByRole('combobox', { name: /^Status/ }).click()
+    await page.getByRole('option', { name: 'All' }).click()
+    check((await page.locator('.MuiSelect-select').filter({ hasText: 'All' }).count()) >= 1, 'tasks status filter shows "All"')
+
+    // 4) person filter on Reports and Client reports
+    await page.getByRole('link', { name: 'Reports', exact: true }).click()
+    await page.waitForSelector('iframe')
+    await page.getByRole('combobox', { name: /^Person/ }).click()
+    await page.getByRole('option', { name: 'Divya Iyer' }).click()
+    await page.waitForTimeout(1200)
+    const rep = await page.frameLocator('iframe').locator('body').innerText()
+    check(rep.includes('Divya Iyer') && !rep.includes('Arjun Das'), 'Reports person filter narrows the report to one person')
+    await shot(page, '24-report-person-filter')
+    await page.getByRole('link', { name: 'Client reports' }).click()
+    await page.getByRole('button', { name: 'Generate' }).first().click()
+    await page.getByLabel('Only work by').click()
+    await page.getByRole('option', { name: 'Divya Iyer' }).click()
+    await shot(page, '25-client-report-person-filter')
+    await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click()
+    await page.getByText('filtered to one person').waitFor({ timeout: 60000 })
+    check(true, 'client report can be generated for one person, name not written into the report')
+    await ctx.close()
+  }
+
+  // ---------------------------------------------------------------- AI provider settings
+  {
+    const { ctx, page } = await login(browser, 'asha')
+    await page.getByRole('link', { name: 'Settings' }).click()
+    await page.getByText('AI drafting').waitFor()
+    await page.getByLabel('Provider').click()
+    const options = await page.getByRole('option').allInnerTexts()
+    check(['Anthropic', 'OpenAI', 'Gemini', 'Off'].every((n) => options.some((o) => o.includes(n))), `provider choices: ${options.join(' | ')}`)
+    await page.getByRole('option', { name: /Gemini/ }).click()
+    await page.getByLabel('API key').fill('AIza-not-a-real-key')
+    await page.getByRole('button', { name: 'Test connection' }).click()
+    await page.locator('.MuiAlert-message').filter({ hasText: /gemini|No LLM|API/i }).first().waitFor({ timeout: 30000 })
+    check(!(await page.locator('.MuiAlert-message').allInnerTexts()).join(' ').includes('AIza-not-a-real-key'), 'connection test reports a result without echoing the key')
+    await shot(page, '26-ai-provider-settings')
+    await page.getByRole('button', { name: 'Save AI settings' }).click()
+    await page.getByText('Company API key saved').waitFor()
+    check(!(await page.content()).includes('AIza-not-a-real-key'), 'the saved API key is never shown again')
     await ctx.close()
   }
 

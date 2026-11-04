@@ -4,7 +4,7 @@ import BlockIcon from '@mui/icons-material/Block'
 import EventBusyIcon from '@mui/icons-material/EventBusyOutlined'
 import EditNoteIcon from '@mui/icons-material/EditNoteOutlined'
 import { Box, Chip, Grid, List, ListItem, ListItemText, MenuItem, Paper, Skeleton, TextField, Typography } from '@mui/material'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api } from '../api'
@@ -37,6 +37,7 @@ export default function Dashboard() {
   const q = useQuery({
     queryKey: ['dashboard', range, project, user],
     queryFn: () => api.get<DashboardData>('/dashboard', { from: daysAgo(range - 1), to: today(), project, user }),
+    placeholderData: keepPreviousData, // keep the old numbers on screen while a filter change loads: no flicker
   })
   const d = q.data
 

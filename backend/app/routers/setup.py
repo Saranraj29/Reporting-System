@@ -19,6 +19,7 @@ from ..models import (
     User,
 )
 from ..security import decrypt, encrypt
+from ..services import ai
 from ..services.timeutil import valid_timezone
 from .auth import PUBLIC_DOMAINS
 
@@ -243,6 +244,10 @@ class SettingsPatch(BaseModel):
     report_email_enabled: bool | None = None
     timezone: str | None = None
     email_domain: str | None = None
+    ai_provider: str | None = Field(default=None, pattern="^(default|anthropic|openai|gemini|none)$")
+    ai_model: str | None = Field(default=None, max_length=120)
+    ai_api_key: str | None = Field(default=None, max_length=500)
+    clear_ai_key: bool = False
 
 
 def _settings_out(ctx: Ctx) -> dict:
@@ -252,6 +257,16 @@ def _settings_out(ctx: Ctx) -> dict:
         "name": c.name, "timezone": c.timezone, "email_domain": c.email_domain,
         "report_email_enabled": c.report_email_day is not None, "report_email_day": c.report_email_day,
         "slack_configured": bool(c.slack_webhook_url),
+    }
+    cfg = ai.resolve_config(c)
+    out["ai"] = {
+        "provider": c.ai_provider or "default",  # default = platform setting
+        "model": c.ai_model,
+        "key_configured": bool(c.ai_api_key),
+        "effective_provider": cfg.provider if cfg else "figures_only",
+        "effective_model": cfg.model if cfg else None,
+        "platform_providers": [p for p in ai.PROVIDERS if ai._platform_key_model(p)[0]],  # providers with a platform-level key
+        "defaults": {p: ai._platform_key_model(p)[1] for p in ai.PROVIDERS},
     }
     if admin and c.slack_webhook_url:
         url = decrypt(c.slack_webhook_url) or ""
@@ -286,6 +301,14 @@ def patch_settings(body: SettingsPatch, ctx: Ctx = Depends(require("settings.man
         c.report_email_day = body.report_email_day
     elif body.report_email_enabled and c.report_email_day is None:
         c.report_email_day = 0
+    if body.ai_provider is not None:
+        c.ai_provider = None if body.ai_provider == "default" else body.ai_provider
+    if body.ai_model is not None:
+        c.ai_model = body.ai_model.strip() or None
+    if body.ai_api_key:
+        c.ai_api_key = encrypt(body.ai_api_key.strip())
+    if body.clear_ai_key:
+        c.ai_api_key = None
     if body.email_domain is not None:
         domain = body.email_domain.lower().strip()
         if domain in PUBLIC_DOMAINS or "." not in domain or not ctx.me.email.lower().endswith("@" + domain):
@@ -296,6 +319,26 @@ def patch_settings(body: SettingsPatch, ctx: Ctx = Depends(require("settings.man
         c.email_domain = domain
     ctx.db.commit()
     return _settings_out(ctx)
+
+
+class AiTestIn(BaseModel):
+    provider: str | None = Field(default=None, pattern="^(anthropic|openai|gemini)$")
+    model: str | None = None
+    api_key: str | None = None
+
+
+@router.post("/settings/ai/test")
+def test_ai(body: AiTestIn | None = None, ctx: Ctx = Depends(require("settings.manage"))):
+    """Round-trips a tiny prompt with the saved settings (or the values typed into the form) so an admin can check a key."""
+    body = body or AiTestIn()
+    cfg = ai.resolve_config(ctx.company, {k: v for k, v in body.model_dump().items() if v})
+    if cfg is None:
+        return {"ok": False, "message": "No LLM is configured: pick a provider and add an API key (or set one on the platform)."}
+    try:
+        reply = ai.ping_model(cfg)
+        return {"ok": True, "provider": cfg.provider, "model": cfg.model, "message": f"{cfg.provider} replied: {reply.strip()[:80]}"}
+    except Exception as exc:  # noqa: BLE001 - surface provider errors to the admin, never the key
+        return {"ok": False, "provider": cfg.provider, "model": cfg.model, "message": str(exc).replace(cfg.api_key, "***")[:400]}
 
 
 @router.get("/notifications")

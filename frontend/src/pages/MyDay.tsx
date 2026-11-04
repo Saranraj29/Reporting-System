@@ -3,10 +3,11 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
 import { Alert, Autocomplete, Box, Button, Chip, Grid, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { DailyStatusForm } from '../components/DailyStatusDialog'
+import { useNow, useRunningTimer, useTimerActions } from '../timer'
 import { Empty, ErrorAlert, PageHeader } from '../components/ui'
 import { daysAgo, elapsed, fmtDate, hours, today } from '../format'
 import type { DailyStatus, Page, Task, TimeEntry } from '../types'
@@ -14,17 +15,14 @@ import type { DailyStatus, Page, Task, TimeEntry } from '../types'
 export default function MyDay() {
   const { me, hasAny } = useAuth()
   const qc = useQueryClient()
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [])
+  const now = useNow()
 
   const tasks = useQuery({ queryKey: ['tasks', 'mine'], queryFn: () => api.get<Page<Task>>('/tasks', { assignee: me?.id, limit: 100 }), enabled: !!me })
   const entries = useQuery({ queryKey: ['entries', 'mine'], queryFn: () => api.get<Page<TimeEntry>>('/time-entries', { user: me?.id, from: daysAgo(6), limit: 100 }), enabled: !!me })
   const statuses = useQuery({ queryKey: ['daily-status', 'week'], queryFn: () => api.get<Page<DailyStatus>>('/daily-status', { user: me?.id, from: daysAgo(6), limit: 50 }), enabled: !!me })
   const open = (tasks.data?.items ?? []).filter((t) => t.status !== 'done')
-  const running = entries.data?.items.find((e) => e.running)
+  const running = useRunningTimer().data
+  const { start, stop } = useTimerActions()
   const [pick, setPick] = useState<Task | null>(null)
   const [manual, setManual] = useState({ hours: '', note: '', date: today() })
   const refresh = () => {
@@ -32,8 +30,6 @@ export default function MyDay() {
     qc.invalidateQueries({ queryKey: ['tasks'] })
     qc.invalidateQueries({ queryKey: ['dashboard'] })
   }
-  const start = useMutation({ mutationFn: () => api.post('/time-entries/start', { task_id: pick!.id }), onSuccess: refresh })
-  const stop = useMutation({ mutationFn: () => api.post(`/time-entries/${running!.id}/stop`), onSuccess: refresh })
   const add = useMutation({
     mutationFn: () => api.post('/time-entries', { task_id: pick!.id, hours: Number(manual.hours), entry_date: manual.date, note: manual.note }),
     onSuccess: () => { setManual({ ...manual, hours: '', note: '' }); refresh() },
@@ -57,12 +53,12 @@ export default function MyDay() {
                     <Typography variant="h3" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>{running.started_at ? elapsed(running.started_at, now) : '00:00:00'}</Typography>
                     <Typography sx={{ opacity: 0.9 }}>{running.task_title}</Typography>
                   </Box>
-                  <Button variant="contained" color="inherit" sx={{ color: 'error.main', bgcolor: '#fff' }} startIcon={<StopIcon />} onClick={() => stop.mutate()} disabled={stop.isPending}>Stop</Button>
+                  <Button variant="contained" color="inherit" sx={{ color: 'error.main', bgcolor: '#fff' }} startIcon={<StopIcon />} onClick={() => stop.mutate(running.id)} disabled={stop.isPending}>Stop</Button>
                 </Stack>
               ) : (
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                   <Autocomplete fullWidth size="small" options={open} value={pick} onChange={(_, v) => setPick(v)} getOptionLabel={(t) => `${t.title} — ${t.project_name}`} renderInput={(p) => <TextField {...p} label="Pick a task" />} />
-                  <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={!pick || start.isPending} onClick={() => start.mutate()}>Start</Button>
+                  <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={!pick || start.isPending} onClick={() => start.mutate(pick!.id)}>Start</Button>
                 </Stack>
               )}
               <ErrorAlert error={start.error ?? stop.error} />

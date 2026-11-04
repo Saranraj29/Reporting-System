@@ -1,4 +1,5 @@
 import datetime as dt
+import io
 import json
 
 import pytest
@@ -37,7 +38,7 @@ def enable_ai(monkeypatch, reply=None, record=None):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     get_settings.cache_clear()
 
-    def fake(system, user):
+    def fake(system, user, cfg=None):
         if record is not None:
             record.append((system, user))
         if isinstance(reply, Exception):
@@ -273,3 +274,27 @@ def test_scheduled_template_generates_a_draft_and_notifies_approvers(work):
     schedule_tick(dt.datetime(2026, 11, 12, 16, 5, tzinfo=dt.UTC))
     drain()
     assert len(work.mgr.get("/report-runs", params={"kind": "client"}).json()["items"]) == before
+
+
+def test_person_filter_narrows_client_figures_without_naming_anyone(work):
+    t = make_template(work)
+    r = work.mgr.post(f"/report-templates/{t['id']}/generate", {**window(work), "user": work.m1.user_id})
+    assert r.status_code == 202
+    drain()
+    run = work.mgr.get(f"/report-runs/{r.json()['id']}").json()
+    f = run["figures"]
+    assert run["person_filter"] == work.m1.user_id
+    assert f["totals"]["hours"] == 3.0 and f["totals"]["tasks_completed"] == 1  # Mia's Apollo work only (Max 2h, Olive 4h excluded)
+    assert "people" not in f and "Mia" not in str(f) and "Mia" not in str(run["ai_text"])
+    assert work.mgr.post(f"/report-templates/{t['id']}/generate", {"user": "00000000-0000-0000-0000-000000000009"}).status_code == 400
+
+
+def test_export_person_filter(work):
+    r = work.mgr.post("/reports/weekly/export", {"user": work.m2.user_id, "from": window(work)["from"], "to": window(work)["to"]}, params={"format": "xlsx"})
+    drain()
+    run = work.mgr.get(f"/report-runs/{r.json()['id']}").json()
+    assert run["person_filter"] == work.m2.user_id
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(work.client.get(run["downloads"]["xlsx"]).content))
+    assert [row[0].value for row in wb["People"].iter_rows(min_row=2)] == ["Max Member"]

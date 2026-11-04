@@ -13,8 +13,8 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { ConfirmDialog, Empty, ErrorAlert, PageHeader, ReportFrame, RunStatusChip } from '../components/ui'
-import { fmtDate, fmtDateTime, titleCase } from '../format'
-import type { Client, Contact, Page, RunDetail, RunSummary, Share, Template } from '../types'
+import { fmtDate, fmtDateTime, isAi, providerLabel, titleCase } from '../format'
+import type { Client, Contact, Page, RunDetail, RunSummary, Share, Template, UserLite } from '../types'
 
 const DEFAULT_SECTIONS = ['Summary', 'Work completed', 'Hours by area', 'Risks and blockers', 'Next week']
 
@@ -27,7 +27,7 @@ export default function ClientReports() {
   const [del, setDel] = useState<Template | null>(null)
   const templates = useQuery({ queryKey: ['templates'], queryFn: () => api.get<{ items: Template[] }>('/report-templates') })
   const runs = useQuery({ queryKey: ['report-runs', 'client'], queryFn: () => api.get<Page<RunSummary>>('/report-runs', { kind: 'client', limit: 50 }), refetchInterval: 6000 })
-  const generate = useMutation({ mutationFn: (id: string) => api.post<{ id: string }>(`/report-templates/${id}/generate`), onSuccess: (r) => nav(`/client-reports/runs/${r.id}`) })
+  const [gen, setGen] = useState<Template | null>(null)
   const remove = useMutation({ mutationFn: (id: string) => api.del(`/report-templates/${id}`), onSuccess: () => { setDel(null); qc.invalidateQueries({ queryKey: ['templates'] }) } })
 
   return (
@@ -38,7 +38,7 @@ export default function ClientReports() {
         <Tab label={`Templates${templates.data ? ` (${templates.data.items.length})` : ''}`} />
         <Tab label={`Reports${runs.data ? ` (${runs.data.total})` : ''}`} />
       </Tabs>
-      <ErrorAlert error={templates.error ?? generate.error} />
+      <ErrorAlert error={templates.error} />
       {tab === 0 && (
         <Grid container spacing={2.5}>
           {templates.data?.items.map((t) => (
@@ -58,7 +58,7 @@ export default function ClientReports() {
                   {t.tone_instructions || 'No tone instructions'} · Schedule: {t.schedule === 'none' ? 'manual' : t.schedule}
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-                  {can('report.ai.draft') && <Button variant="contained" size="small" startIcon={<AutoAwesomeIcon />} disabled={generate.isPending} onClick={() => generate.mutate(t.id)}>Generate</Button>}
+                  {can('report.ai.draft') && <Button variant="contained" size="small" startIcon={<AutoAwesomeIcon />} onClick={() => setGen(t)}>Generate</Button>}
                   {can('report.template.manage') && (
                     <>
                       <Tooltip title="Edit"><IconButton size="small" onClick={() => setEdit(t)} aria-label="Edit template"><EditIcon fontSize="small" /></IconButton></Tooltip>
@@ -82,7 +82,7 @@ export default function ClientReports() {
                   <TableCell sx={{ fontWeight: 600 }}>{r.title}</TableCell>
                   <TableCell>{fmtDate(r.period_start)} – {fmtDate(r.period_end)}</TableCell>
                   <TableCell><RunStatusChip status={r.status} /></TableCell>
-                  <TableCell>{r.ai_provider === 'anthropic' ? 'AI (Claude)' : r.ai_provider === 'figures_only' ? 'Figures only' : '—'}</TableCell>
+                  <TableCell>{providerLabel(r.ai_provider)}</TableCell>
                   <TableCell>{fmtDateTime(r.created_at)}</TableCell>
                   <TableCell align="right"><Button size="small" component={RouterLink} to={`/client-reports/runs/${r.id}`}>{r.status === 'drafted' ? 'Review' : 'Open'}</Button></TableCell>
                 </TableRow>
@@ -92,9 +92,43 @@ export default function ClientReports() {
           {runs.data?.items.length === 0 && <Empty>No reports generated yet.</Empty>}
         </Paper>
       )}
+      {gen && <GenerateDialog template={gen} onClose={() => setGen(null)} onDone={(id) => nav(`/client-reports/runs/${id}`)} />}
       {edit && <TemplateDialog template={edit === 'new' ? null : edit} onClose={() => setEdit(null)} />}
       <ConfirmDialog open={!!del} danger title="Delete template?" confirmLabel="Delete" body={`“${del?.name}” will be removed. Existing reports keep their content.`} onClose={() => setDel(null)} onConfirm={() => del && remove.mutate(del.id)} />
     </>
+  )
+}
+
+function GenerateDialog({ template, onClose, onDone }: { template: Template; onClose: () => void; onDone: (runId: string) => void }) {
+  const users = useQuery({ queryKey: ['users', 'all'], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200 }) })
+  const [range, setRange] = useState({ from: '', to: '' })
+  const [user, setUser] = useState('')
+  const run = useMutation({
+    mutationFn: () => api.post<{ id: string }>(`/report-templates/${template.id}/generate`, { from: range.from && range.to ? range.from : undefined, to: range.from && range.to ? range.to : undefined, user: user || undefined }),
+    onSuccess: (r) => onDone(r.id),
+  })
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Generate “{template.name}”</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ pt: 0.5 }}>
+          <Typography variant="body2" color="text.secondary">Leave the dates empty for the last complete {template.base_report === 'monthly' ? 'month' : 'week'}.</Typography>
+          <Stack direction="row" spacing={1.5}>
+            <TextField type="date" label="From" fullWidth value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} />
+            <TextField type="date" label="To" fullWidth value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} />
+          </Stack>
+          <TextField select label="Only work by" value={user} onChange={(e) => setUser(e.target.value)} helperText="Narrows the figures to one person's work. Their name is never written into the report or sent to the AI.">
+            <MenuItem value="">Whole team</MenuItem>
+            {users.data?.items.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+          </TextField>
+          <ErrorAlert error={run.error} />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" startIcon={<AutoAwesomeIcon />} disabled={run.isPending || (!!range.from !== !!range.to)} onClick={() => run.mutate()}>Generate</Button>
+      </DialogActions>
+    </Dialog>
   )
 }
 
@@ -191,7 +225,7 @@ export function RunReview() {
   const questions: string[] = (r.ai_text?._questions as string[] | undefined) ?? []
   return (
     <>
-      <PageHeader title={r.title} subtitle={`${fmtDate(r.period_start)} – ${fmtDate(r.period_end)}`} actions={<RunStatusChip status={r.status} />} />
+      <PageHeader title={r.title} subtitle={`${fmtDate(r.period_start)} – ${fmtDate(r.period_end)}${r.person_filter ? ' · filtered to one person (name not included in the report)' : ''}`} actions={<RunStatusChip status={r.status} />} />
       <Paper sx={{ p: 2.5, mb: 2.5 }}>
         <Stepper activeStep={stepIndex(r.status)} alternativeLabel>{STEPS.map((s) => <Step key={s}><StepLabel>{s}</StepLabel></Step>)}</Stepper>
         {r.approved_at && <Typography variant="caption" color="text.secondary" display="block" align="center" sx={{ mt: 1 }}>Approved {fmtDateTime(r.approved_at)}</Typography>}
@@ -229,7 +263,7 @@ export function RunReview() {
                 <Paper sx={{ p: 2.5 }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Draft</Typography>
-                    <Chip size="small" icon={<AutoAwesomeIcon />} label={r.ai_provider === 'anthropic' ? 'Drafted by AI' : 'Figures only — no AI narrative'} color={r.ai_provider === 'anthropic' ? 'secondary' : 'default'} />
+                    <Chip size="small" icon={<AutoAwesomeIcon />} label={isAi(r.ai_provider) ? `Drafted by ${providerLabel(r.ai_provider).replace('AI · ', '')}` : 'Figures only — no AI narrative'} color={isAi(r.ai_provider) ? 'secondary' : 'default'} />
                   </Stack>
                   {questions.length > 0 && <Alert severity="warning" sx={{ mb: 2 }}><b>Questions from the drafter</b><ul style={{ margin: '4px 0 0 18px', padding: 0 }}>{questions.map((q) => <li key={q}>{q}</li>)}</ul></Alert>}
                   <Stack spacing={2}>

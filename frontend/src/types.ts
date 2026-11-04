@@ -143,6 +143,7 @@ export interface RunSummary {
   approved_at: string | null
   ai_provider: string | null
   client_id: string | null
+  person_filter: string | null
   downloads: { pdf: string | null; xlsx: string | null; docx: string | null }
 }
 export interface RunDetail extends RunSummary {
@@ -182,4 +183,13 @@ export interface Settings {
   report_email_day: number | null
   slack_configured: boolean
   slack_webhook_hint?: string
+  ai: {
+    provider: string
+    model: string | null
+    key_configured: boolean
+    effective_provider: string
+    effective_model: string | null
+    platform_providers: string[]
+    defaults: Record<string, string>
+  }
 }

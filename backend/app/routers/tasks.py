@@ -11,7 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
-from ..deps import Ctx, Page, paged, pagination, require, require_any
+from ..deps import Ctx, Page, get_ctx, paged, pagination, require, require_any
 from ..errors import ApiError, bad_request, conflict, forbidden, not_found
 from ..models import (
     DailyStatus,
@@ -396,6 +396,16 @@ def list_time_entries(
     total = ctx.db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar_one()
     rows = ctx.db.execute(stmt.limit(page.limit).offset(page.offset)).all()
     return {"items": [_entry_out(e, t, n) for e, t, n in rows], "total": total, "page": page.page, "limit": page.limit}
+
+
+@router.get("/time-entries/running")
+def running_timer(ctx: Ctx = Depends(get_ctx)):
+    """My currently running timer (or null). The web app shows it in the header on every page."""
+    row = ctx.db.execute(
+        select(TimeEntry, Task.title).join(Task, Task.id == TimeEntry.task_id)
+        .where(TimeEntry.user_id == ctx.me.id, TimeEntry.started_at.is_not(None), TimeEntry.stopped_at.is_(None))
+    ).first()
+    return _entry_out(row[0], row[1], ctx.me.name) if row else None
 
 
 class EntryIn(BaseModel):

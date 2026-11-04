@@ -20,7 +20,7 @@ Three deployables, one codebase, one database:
 | ![My day](docs/screenshots/13-my-day.png) **My day** — timer, time log, daily status | ![Report review](docs/screenshots/09-report-review.png) **AI-drafted client report review** |
 | ![Shared page](docs/screenshots/11-shared-report.png) **Public client page** (no login, expires) | ![Roles](docs/screenshots/16-admin-roles.png) **Roles & permissions** (data, not code) |
 
-All 21 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
+All 26 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
 
 ## Run it
 
@@ -69,10 +69,17 @@ Demo logins (password `Demo@12345`): `priya@northwind.dev` Manager · `asha@nort
 Configuration is environment variables — see [`.env.example`](.env.example). With no `ANTHROPIC_API_KEY` the
 drafting step produces a deterministic **figures-only** draft, so the whole flow works offline.
 
+### Choosing the LLM (Anthropic, OpenAI, Gemini)
+Set any of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (and optionally `AI_PROVIDER`, `*_MODEL`, `OPENAI_BASE_URL` for
+Azure/vLLM/Ollama-style OpenAI-compatible servers) — see [`.env.example`](.env.example). `AI_PROVIDER=auto` uses the first provider that has a key.
+Each **company** can also pick its own provider, model and API key under **Settings → AI drafting** (key stored encrypted, write-only),
+with a *Test connection* button, or switch AI off. Every provider gets the same prompt with the same privacy boundary (aggregated figures only).
+Adding another provider = one function in [`services/ai.py`](backend/app/services/ai.py).
+
 ## Tests and CI
 
 ```bash
-cd backend  && pytest          # 99 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
+cd backend  && pytest          # 124 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
 cd frontend && npm test        # 15 unit tests;  npm run typecheck;  npm run build
 cd e2e && node ui.cjs          # browser tour against the running stack (+ screenshots)
 ```
@@ -104,7 +111,7 @@ partial-failure retry, and schedule timing per company timezone.
 * **Worker** – reminders (17:30 status, 09:00 due/overdue), blocker alerts, report export, AI drafting, scheduled
   templates (Fri 16:00 / 1st), scheduled report email (Mon 07:00 / 1st), share emails; all in company time.
 * **AI** – `draft_report_text(figures, template)` ([`services/ai.py`](backend/app/services/ai.py)); one prompt, one call,
-  figures sanitised, JSON out; provider swap = `_call_model`.
+  figures sanitised, JSON out; Anthropic / OpenAI / Gemini selectable per platform or per company (`resolve_config`).
 
 ## Deliberate differences from the design document
 
@@ -128,6 +135,7 @@ These are the places where the code does something other than (or beyond) the wr
   sandbox-only workarounds that do not touch the repo's files: the sandbox proxy's CA certificate was injected and
   Chromium was copied in, because the sandbox could not download Playwright's browser. On a normal machine
   `docker compose up --build` fetches it itself — that exact download step was the one part not exercised.
-* The real Anthropic call (`_call_model`) and Google sign-in verification — exercised only with fakes; no keys were available.
+* The real Anthropic, OpenAI and Gemini calls and Google sign-in verification — exercised only with fakes (request shapes are asserted
+  in the tests, but no live key was available). Default model names (`gpt-4o-mini`, `gemini-2.0-flash`) may need updating; they are settings.
 * SMTP/SES delivery and a real Slack webhook — mail/Slack calls are faked in tests; the console mail backend is used in dev.
 * Performance targets (dashboard < 1 s at 20k tasks, export < 30 s) — not load-tested.

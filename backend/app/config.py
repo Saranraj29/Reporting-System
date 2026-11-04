@@ -25,8 +25,16 @@ class Settings(BaseSettings):
     smtp_user: str | None = None
     smtp_password: str | None = None
 
+    # LLM for report drafting. ai_provider: auto (first configured key wins) | anthropic | openai | gemini | none.
+    # A company can override provider/model/key in Settings; these are the platform defaults.
+    ai_provider: str = "auto"
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-5-5"
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = "https://api.openai.com/v1"  # any OpenAI-compatible endpoint (Azure OpenAI, vLLM, ...)
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.0-flash"
     google_client_id: str | None = None
 
     storage_dir: str = "./var/files"

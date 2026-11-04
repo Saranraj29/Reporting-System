@@ -2,14 +2,14 @@ import DescriptionIcon from '@mui/icons-material/DescriptionOutlined'
 import DownloadIcon from '@mui/icons-material/Download'
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import TableChartIcon from '@mui/icons-material/TableChartOutlined'
-import { Alert, Box, Button, CircularProgress, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { Alert, Box, Button, CircularProgress, LinearProgress, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Empty, ErrorAlert, PageHeader, ReportFrame, RunStatusChip } from '../components/ui'
 import { fmtDate, fmtDateTime } from '../format'
-import type { Page, Project, ReportInfo, RunDetail, RunSummary } from '../types'
+import type { Page, Project, ReportInfo, RunDetail, RunSummary, UserLite } from '../types'
 
 export default function Reports() {
   const list = useQuery({ queryKey: ['reports'], queryFn: () => api.get<{ items: ReportInfo[] }>('/reports') })
@@ -17,19 +17,22 @@ export default function Reports() {
   const [tab, setTab] = useState(0)
   const [range, setRange] = useState<{ from: string; to: string } | null>(null)
   const [project, setProject] = useState('')
+  const [person, setPerson] = useState('')
+  const users = useQuery({ queryKey: ['users', 'all'], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200 }) })
   const info = list.data?.items[tab]
   useEffect(() => {
     if (info) setRange({ from: info.default_from, to: info.default_to })
   }, [info?.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const report = useQuery({
-    queryKey: ['report', info?.key, range, project],
-    queryFn: () => api.get<{ html: string; figures: Record<string, any> }>(`/reports/${info!.key}`, { from: range!.from, to: range!.to, project }),
+    queryKey: ['report', info?.key, range, project, person],
+    queryFn: () => api.get<{ html: string; figures: Record<string, any> }>(`/reports/${info!.key}`, { from: range!.from, to: range!.to, project, user: person }),
     enabled: !!info && !!range,
+    placeholderData: keepPreviousData, // old report stays visible while the new one loads
   })
   const [exportId, setExportId] = useState<string | null>(null)
   const exp = useMutation({
-    mutationFn: (format: string) => api.post<{ id: string }>(`/reports/${info!.key}/export`, { from: range!.from, to: range!.to, project: project || null }, { format }),
+    mutationFn: (format: string) => api.post<{ id: string }>(`/reports/${info!.key}/export`, { from: range!.from, to: range!.to, project: project || null, user: person || null }, { format }),
     onSuccess: (r) => setExportId(r.id),
   })
   const recent = useQuery({ queryKey: ['report-runs', 'export'], queryFn: () => api.get<Page<RunSummary>>('/report-runs', { kind: 'export', limit: 8 }), refetchInterval: 5000 })
@@ -57,10 +60,15 @@ export default function Reports() {
             <MenuItem value="">All projects</MenuItem>
             {projects.data?.items.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
           </TextField>
+          <TextField select size="small" label="Person" value={person} onChange={(e) => setPerson(e.target.value)} sx={{ minWidth: 190 }}>
+            <MenuItem value="">Everyone in scope</MenuItem>
+            {users.data?.items.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+          </TextField>
         </Stack>
       </Paper>
       <ErrorAlert error={report.error ?? exp.error} />
       {exportId && <ExportBanner id={exportId} onClose={() => setExportId(null)} />}
+      {report.isFetching && report.data && <LinearProgress sx={{ mb: 1, borderRadius: 1 }} />}
       {report.isLoading ? <CircularProgress /> : report.data && <ReportFrame html={report.data.html} />}
       <Paper sx={{ p: 2.5, mt: 3 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>Your recent exports</Typography>

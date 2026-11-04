@@ -14,6 +14,7 @@ import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { initials } from '../format'
+import { HeaderTimer } from '../timer'
 import { DailyStatusDialog } from './DailyStatusDialog'
 
 const WIDTH = 248
@@ -107,6 +108,7 @@ export function Layout() {
             </IconButton>
           )}
           <Box sx={{ flex: 1 }} />
+          <HeaderTimer />
           <Tooltip title="Add today's status">
             <IconButton color="primary" onClick={() => setStatusOpen(true)} aria-label="Add daily status" sx={{ bgcolor: 'primary.main', color: '#fff', mr: 2, '&:hover': { bgcolor: 'primary.dark' } }}>
               <AddIcon />
