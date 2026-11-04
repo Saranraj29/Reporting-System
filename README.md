@@ -24,14 +24,28 @@ All 19 screens: [`docs/screenshots`](docs/screenshots). They are produced by the
 
 ## Run it
 
-### Docker (everything)
+### Docker (recommended for a first run)
+Needs Docker Desktop / Docker Engine with the Compose plugin. Nothing else (no Python, Node or PostgreSQL).
 ```bash
-docker compose up --build
+docker compose up --build -d                  # or: make up
+docker compose --profile demo run --rm seed   # optional demo company, or: make seed
 ```
-Web: http://localhost:8080 · API docs: http://localhost:8080/api/docs. Add demo data:
-```bash
-docker compose exec api python -m app.seed
-```
+Open **http://localhost:8080** (API docs: http://localhost:8080/api/docs). Log in with the demo users below, or register a
+new company with any work-domain email. There is no mail server in dev, so verification links appear on the sign-up
+screen ("verify now") and every email is printed in the worker log: `docker compose logs -f worker` (`make logs`).
+
+| Service | What it is | Port |
+|---|---|---|
+| `web` | nginx serving the built React app and proxying `/api` to the API | 8080 |
+| `api` | FastAPI (healthchecked; `web` waits for it) | internal |
+| `worker` | same image, `python -m app.worker` | internal |
+| `migrate` | one-shot `alembic upgrade head`, runs before api/worker | – |
+| `db` | PostgreSQL 16, roles created by `infra/db/init.sql` | 127.0.0.1:5433 |
+
+Useful: `make down` (stop, keep data) · `make reset` (stop and wipe database + report files) ·
+`WEB_PORT=9090 docker compose up -d` if 8080 is taken · put `ANTHROPIC_API_KEY=...` in a root `.env` file to get real AI
+drafts instead of figures-only drafts (copy `.env.example`; Compose reads it automatically).
+The first build is slow (~5 min) because the backend image bundles Chromium for PDF export.
 
 ### Local development
 ```bash
@@ -106,8 +120,11 @@ These are the places where the code does something other than (or beyond) the wr
 
 ## Not verified here
 
-* `docker compose up --build` and the Docker CI job — there was no Docker daemon in the build sandbox. The Dockerfiles
-  and compose file are written but were never built.
+* The Docker CI job has not run on GitHub yet. The compose stack itself *was* run end to end in the build sandbox (migrate,
+  seed, healthchecks, login, PDF export, and the full browser tour against http://localhost:8080), but with two
+  sandbox-only workarounds that do not touch the repo's files: the sandbox proxy's CA certificate was injected and
+  Chromium was copied in, because the sandbox could not download Playwright's browser. On a normal machine
+  `docker compose up --build` fetches it itself — that exact download step was the one part not exercised.
 * The real Anthropic call (`_call_model`) and Google sign-in verification — exercised only with fakes; no keys were available.
 * SMTP/SES delivery and a real Slack webhook — mail/Slack calls are faked in tests; the console mail backend is used in dev.
 * Performance targets (dashboard < 1 s at 20k tasks, export < 30 s) — not load-tested.

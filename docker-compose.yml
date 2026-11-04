@@ -1,39 +1,56 @@
-# Local stack: docker compose up --build   (web on http://localhost:8080, API docs on /api/docs)
-# Development credentials only. In production use managed Postgres and a secret manager.
+# Local stack:   docker compose up --build        -> web on http://localhost:8080 (API docs: /api/docs)
+# Demo data:     docker compose --profile demo run --rm seed
+# Stop / wipe:   docker compose down   |   docker compose down -v   (also deletes the database and report files)
+#
+# Development credentials only. In production use managed PostgreSQL, a secret manager and real SMTP/SES.
+x-backend: &backend
+  image: transparency-backend
+  pull_policy: never  # built once by the `api` service below, shared by migrate / worker / seed
+
 x-api-env: &api-env
   DATABASE_URL: postgresql+psycopg://rs_app:rs_app@db:5432/reporting
   JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-dev-secret-change-me}
   PLATFORM_KEY: ${PLATFORM_KEY:-dev-platform-key-change-me}
-  PUBLIC_WEB_URL: http://localhost:8080
-  WEB_ORIGIN: http://localhost:8080
+  PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
+  WEB_ORIGIN: ${PUBLIC_WEB_URL:-http://localhost:8080}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   EMAIL_BACKEND: ${EMAIL_BACKEND:-console}
   STORAGE_DIR: /data/files
 
 services:
   db:
     image: postgres:16
+    restart: unless-stopped
     environment: { POSTGRES_PASSWORD: postgres }
+    ports: ["127.0.0.1:${DB_PORT:-5433}:5432"]  # for psql / the e2e tour; not exposed beyond this machine
     volumes:
       - dbdata:/var/lib/postgresql/data
       - ./infra/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 3s, retries: 20 }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres -d reporting"], interval: 3s, retries: 30 }
+
+  api:
+    <<: *backend
+    build: ./backend
+    restart: unless-stopped
+    environment: *api-env
+    volumes: [files:/data/files]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      retries: 20
 
   migrate:
-    build: ./backend
+    <<: *backend
     command: alembic upgrade head
     environment:
       MIGRATION_DATABASE_URL: postgresql+psycopg://rs_owner:rs_owner@db:5432/reporting
     depends_on: { db: { condition: service_healthy } }
 
-  api:
-    build: ./backend
-    environment: *api-env
-    volumes: [files:/data/files]
-    depends_on: { migrate: { condition: service_completed_successfully } }
-
   worker:
-    build: ./backend
+    <<: *backend
+    restart: unless-stopped
     command: python -m app.worker
     environment: *api-env
     volumes: [files:/data/files]
@@ -41,8 +58,16 @@ services:
 
   web:
     build: ./frontend
-    ports: ["8080:80"]
-    depends_on: [api]
+    restart: unless-stopped
+    ports: ["${WEB_PORT:-8080}:80"]
+    depends_on: { api: { condition: service_healthy } }
+
+  seed:  # optional: docker compose --profile demo run --rm seed
+    <<: *backend
+    profiles: [demo]
+    command: python -m app.seed
+    environment: *api-env
+    depends_on: { migrate: { condition: service_completed_successfully } }
 
 volumes:
   dbdata:
