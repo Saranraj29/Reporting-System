@@ -31,6 +31,28 @@
 <h2>Coming up</h2>
 <table><tr><th>Task</th><th>Project</th><th>Due</th><th>Status</th></tr>
 {% for u in f.upcoming %}<tr><td>{{ u.title }}</td><td>{{ u.project }}</td><td>{{ u.due_date|d }}</td><td>{{ u.status|replace("_", " ") }}</td></tr>{% endfor %}</table>{% endif %}
+{% if f.check_in_totals %}
+<h2>Daily check-ins</h2>
+<div class="kpis">
+  {{ kpi((f.check_in_totals.morning_rate ~ "%") if f.check_in_totals.morning_rate is not none else "–", "morning plans posted") }}
+  {{ kpi((f.check_in_totals.eod_rate ~ "%") if f.check_in_totals.eod_rate is not none else "–", "end-of-day updates posted") }}
+  {{ kpi(f.check_in_totals.working_days, "working days in period") }}
+</div>
+<table><tr><th>Name</th><th class="n">Morning plans</th><th class="n">End-of-day updates</th><th class="n">Days with blockers</th></tr>
+{% for c in f.check_ins %}<tr><td>{{ c.name }}</td>
+  <td class="n">{{ c.morning_plans }}/{{ c.working_days }}{% if c.morning_rate is not none %} ({{ c.morning_rate }}%){% endif %}</td>
+  <td class="n">{{ c.eod_updates }}/{{ c.working_days }}{% if c.eod_rate is not none %} ({{ c.eod_rate }}%){% endif %}</td>
+  <td class="n">{{ c.days_with_blockers }}</td></tr>{% endfor %}
+</table>
+{% if f.check_in_entries %}
+<h2>Check-in log</h2>
+<table><tr><th>Date</th><th>Name</th><th>Morning plan</th><th>End of day</th><th>Blockers</th></tr>
+{% for e in f.check_in_entries %}<tr><td>{{ e.date|d }}</td><td>{{ e.name }}</td>
+  <td>{{ e.morning_plan or "—" }}{% if e.morning_at %}<br><span class="empty">{{ e.morning_at }}</span>{% endif %}</td>
+  <td>{{ e.done or "—" }}{% if e.next_up %}<br><span class="empty">Next: {{ e.next_up }}</span>{% endif %}{% if e.eod_at %}<br><span class="empty">{{ e.eod_at }}</span>{% endif %}</td>
+  <td>{{ e.blockers or "" }}</td></tr>{% endfor %}
+</table>{% endif %}
+{% endif %}
 {% if f.people %}
 <h2>People</h2>
 <table><tr><th>Name</th><th class="n">Hours</th><th class="n">Tasks completed</th></tr>

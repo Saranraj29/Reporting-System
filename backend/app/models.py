@@ -181,6 +181,8 @@ class TaskComment(Base, Stamps):
     task_id: Mapped[uuid.UUID] = _fk("tasks")
     user_id: Mapped[uuid.UUID] = _fk("users")
     body: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text, default="comment")  # comment | system
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class DailyStatus(Base, Stamps):
@@ -189,7 +191,10 @@ class DailyStatus(Base, Stamps):
     company_id: Mapped[uuid.UUID] = _cid()
     user_id: Mapped[uuid.UUID] = _fk("users")
     status_date: Mapped[date] = mapped_column(Date)
-    did_today: Mapped[str] = mapped_column(Text, default="")
+    plan_today: Mapped[str] = mapped_column(Text, default="")  # morning check-in
+    morning_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    eod_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    did_today: Mapped[str] = mapped_column(Text, default="")  # end-of-day update
     next_up: Mapped[str] = mapped_column(Text, default="")
     blockers: Mapped[str] = mapped_column(Text, default="")
 

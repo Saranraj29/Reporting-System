@@ -8,6 +8,7 @@ import MenuIcon from '@mui/icons-material/Menu'
 import SettingsIcon from '@mui/icons-material/SettingsOutlined'
 import TaskIcon from '@mui/icons-material/TaskAltOutlined'
 import TimerIcon from '@mui/icons-material/TimerOutlined'
+import GroupsIcon from '@mui/icons-material/GroupsOutlined'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesomeOutlined'
 import { AppBar, Avatar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
 import { useState, type ReactNode } from 'react'
@@ -39,6 +40,7 @@ export function Layout() {
     { to: '/', label: 'Dashboard', icon: <DashboardIcon />, show: hasAny('dashboard.view') },
     { to: '/tasks', label: 'Tasks', icon: <TaskIcon />, show: hasAny('task.view') },
     { to: '/my-day', label: 'My day', icon: <TimerIcon />, show: hasAny('task.view', 'status.view') },
+    { to: '/check-ins', label: 'Check-ins', icon: <GroupsIcon />, show: can('status.view.team') || can('status.view.all') },
     { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, show: hasAny('report.weekly.view', 'report.monthly.view', 'report.performance.view') },
     { to: '/client-reports', label: 'Client reports', icon: <AutoAwesomeIcon />, show: ['report.template.manage', 'report.ai.draft', 'report.approve', 'report.share.client'].some(can) },
   ]

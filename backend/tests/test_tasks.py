@@ -137,7 +137,7 @@ def test_assignees_endpoint_and_comments(org):
     assert o.lead.put(f"/tasks/{t['id']}/assignees", {"user_ids": []}).status_code == 400
     c = o.m2.post(f"/tasks/{t['id']}/comments", {"body": "On it"})
     assert c.status_code == 201
-    assert [x["body"] for x in o.m1.get(f"/tasks/{t['id']}/comments").json()["items"]] == ["On it"]
+    assert [x["body"] for x in o.m1.get(f"/tasks/{t['id']}/comments").json()["items"] if x["kind"] == "comment"] == ["On it"]
     assert o.out.get(f"/tasks/{t['id']}/comments").status_code == 404
 
 

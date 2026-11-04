@@ -3,7 +3,7 @@ from app.services.dashboard import clear_dashboard_cache
 
 def test_dashboard_numbers_for_a_manager(work):
     d = work.mgr.get("/dashboard").json()
-    assert d["tasks_by_status"] == {"todo": 2, "in_progress": 1, "blocked": 1, "in_review": 0, "done": 1}
+    assert d["tasks_by_status"] == {"todo": 2, "in_progress": 1, "in_review": 0, "testing": 0, "blocked": 1, "done": 1}
     assert d["total_tasks"] == 5
     assert d["total_hours"] == 10.0
     assert {h["project"]: h["hours"] for h in d["hours_by_project"]} == {"Apollo": 9.0, "Hermes": 1.0}

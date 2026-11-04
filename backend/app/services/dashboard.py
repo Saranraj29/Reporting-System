@@ -60,7 +60,7 @@ def dashboard(
         text(f"""SELECT t.status, count(*) AS n FROM tasks t
                  WHERE {TASK_SCOPE} AND {proj_t} AND {TASK_ACTIVE_IN_PERIOD} GROUP BY t.status"""), p,
     ).all()
-    by_status = {s: 0 for s in ("todo", "in_progress", "blocked", "in_review", "done")}
+    by_status = {s: 0 for s in ("todo", "in_progress", "in_review", "testing", "blocked", "done")}
     by_status.update({r.status: r.n for r in counts})
 
     def task_list(extra: str, order: str) -> list[dict]:
@@ -127,6 +127,12 @@ def dashboard(
                      ORDER BY d.status_date DESC LIMIT 10"""), p)
     ]
 
+    checkins = db.execute(
+        text("""SELECT u.name, (d.morning_at IS NOT NULL) AS morning, (d.eod_at IS NOT NULL) AS eod FROM users u
+                LEFT JOIN daily_status d ON d.user_id = u.id AND d.status_date = :today
+                WHERE u.is_active AND (CAST(:status_uids AS uuid[]) IS NULL OR u.id = ANY(CAST(:status_uids AS uuid[]))) ORDER BY u.name"""), p
+    ).all()
+
     payload = {
         "period": {"from": start.isoformat(), "to": end.isoformat()},
         "tasks_by_status": by_status,
@@ -135,7 +141,11 @@ def dashboard(
         "total_hours": round(sum(h["hours"] for h in hours_by_project), 2),
         "hours_by_project": hours_by_project, "hours_by_activity": hours_by_activity, "hours_by_day": hours_by_day,
         "overdue_tasks": overdue, "blockers": blockers,
-        "daily_status": {"expected": expected, "submitted_today": submitted, "blockers": status_blockers},
+        "daily_status": {
+            "expected": expected, "submitted_today": submitted, "blockers": status_blockers,
+            "morning_today": sum(1 for c in checkins if c.morning), "eod_today": sum(1 for c in checkins if c.eod),
+            "missing_morning": [c.name for c in checkins if not c.morning], "missing_eod": [c.name for c in checkins if not c.eod],
+        },
     }
     if len(_CACHE) > 500:
         _CACHE.clear()

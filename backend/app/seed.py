@@ -44,7 +44,8 @@ TASKS = [  # (title, project, activity, priority, status, eta, assignee locals)
     ("Redesign landing page hero", "Website Revamp", "Design", "high", "done", 12, ["divya"]),
     ("Implement responsive navigation", "Website Revamp", "Development", "medium", "done", 8, ["arjun"]),
     ("Product catalogue API integration", "Website Revamp", "Development", "high", "in_progress", 20, ["arjun", "karthik"]),
-    ("Checkout flow usability tests", "Website Revamp", "Testing", "medium", "in_review", 10, ["meera"]),
+    ("Checkout flow usability tests", "Website Revamp", "Testing", "medium", "testing", 10, ["meera"]),
+    ("Cart discount rules", "Website Revamp", "Development", "medium", "in_review", 8, ["arjun"]),
     ("Payment gateway sandbox access", "Website Revamp", "Support", "urgent", "blocked", 4, ["karthik"]),
     ("SEO metadata audit", "Website Revamp", "Documentation", "low", "todo", 6, ["divya"]),
     ("Push notification service", "Mobile App", "Development", "high", "in_progress", 24, ["nisha", "sanjay"]),
@@ -129,12 +130,27 @@ def run() -> None:
                     if day.weekday() < 5:
                         db.add(TimeEntry(company_id=cid, task_id=t.id, user_id=users[w].id, hours=rnd.choice([1, 1.5, 2, 2.5]),
                                          entry_date=day, note=rnd.choice(["", "pairing", "review feedback", "bug fixes"])))
-    for local in ("divya", "arjun", "karthik", "meera", "nisha"):
-        db.add(DailyStatus(
-            company_id=cid, user_id=users[local].id, status_date=today,
-            did_today="Worked through the assigned tickets and paired on a tricky bug.", next_up="Pick up the next sprint items.",
-            blockers="Waiting on payment sandbox credentials." if local == "karthik" else "",
-        ))
+    # two check-ins a day (morning plan + end-of-day update) over the last working days, with realistic gaps
+    now = datetime.now(UTC)
+    plans = ["Finish the assigned tickets", "Review PRs, then pair on the open bug", "Write tests and update docs", "Sprint planning, then feature work"]
+    dones = ["Closed two tickets and reviewed a PR", "Paired on a tricky bug, fixed it", "Added tests, updated the docs", "Planning done, started the next feature"]
+    workdays = [today - timedelta(days=i) for i in range(0, 8) if (today - timedelta(days=i)).weekday() < 5]
+    for local in ("divya", "arjun", "karthik", "meera", "nisha", "sanjay"):
+        for n, day in enumerate(workdays):
+            skip_morning = (local == "nisha" and n % 2 == 1) or (local == "sanjay" and day == today)
+            skip_eod = (local == "meera" and n % 3 == 1) or (day == today and local in ("divya", "sanjay"))
+            if skip_morning and skip_eod:
+                continue
+            base = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
+            db.add(DailyStatus(
+                company_id=cid, user_id=users[local].id, status_date=day,
+                plan_today="" if skip_morning else plans[(n + len(local)) % len(plans)],
+                morning_at=None if skip_morning else (now - timedelta(hours=4, minutes=rnd.randint(0, 50)) if day == today else base + timedelta(hours=9, minutes=rnd.randint(0, 50))),
+                did_today="" if skip_eod else dones[(n + len(local)) % len(dones)],
+                eod_at=None if skip_eod else (now - timedelta(minutes=rnd.randint(1, 30)) if day == today else base + timedelta(hours=17, minutes=rnd.randint(0, 50))),
+                next_up="" if skip_eod else "Pick up the next sprint items.",
+                blockers="Waiting on payment sandbox credentials." if local == "karthik" and day == today else "",
+            ))
     db.add(ReportTemplate(
         company_id=cid, name="Contoso weekly client update", audience="client", base_report="weekly", format="narrative",
         sections=["Summary", "Work completed", "Hours by area", "Risks and blockers", "Next week"],

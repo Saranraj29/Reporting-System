@@ -3,6 +3,7 @@ import AssignmentIcon from '@mui/icons-material/AssignmentOutlined'
 import BlockIcon from '@mui/icons-material/Block'
 import EventBusyIcon from '@mui/icons-material/EventBusyOutlined'
 import EditNoteIcon from '@mui/icons-material/EditNoteOutlined'
+import WbSunnyIcon from '@mui/icons-material/WbSunnyOutlined'
 import { Box, Chip, Grid, List, ListItem, ListItemText, MenuItem, Paper, Skeleton, TextField, Typography } from '@mui/material'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -42,7 +43,7 @@ export default function Dashboard() {
   const d = q.data
 
   const statusData = d ? Object.entries(d.tasks_by_status).map(([k, v]) => ({ name: STATUS_LABELS[k], key: k, value: v })).filter((x) => x.value > 0) : []
-  const coverage = d && d.daily_status.expected ? Math.round((d.daily_status.submitted_today / d.daily_status.expected) * 100) : 0
+  const coverage = d && d.daily_status.expected ? Math.round((d.daily_status.eod_today / d.daily_status.expected) * 100) : 0
 
   return (
     <>
@@ -76,9 +77,10 @@ export default function Dashboard() {
           { label: 'Hours logged', value: d ? hours(d.total_hours) : undefined, icon: <AccessTimeIcon />, color: '#0ca678', hint: `last ${range} days` },
           { label: 'Overdue', value: d?.overdue_count, icon: <EventBusyIcon />, color: '#e8590c', hint: 'past due, not done' },
           { label: 'Blocked', value: d?.blocked_count, icon: <BlockIcon />, color: '#e03131', hint: 'need attention' },
-          { label: 'Status today', value: d ? `${d.daily_status.submitted_today}/${d.daily_status.expected}` : undefined, icon: <EditNoteIcon />, color: '#7048e8', hint: `${coverage}% submitted` },
+          { label: 'Morning plans', value: d ? `${d.daily_status.morning_today}/${d.daily_status.expected}` : undefined, icon: <WbSunnyIcon />, color: '#f59f00', hint: 'posted today' },
+          { label: 'End-of-day updates', value: d ? `${d.daily_status.eod_today}/${d.daily_status.expected}` : undefined, icon: <EditNoteIcon />, color: '#7048e8', hint: `${coverage}% of the team` },
         ].map((s) => (
-          <Grid key={s.label} item xs={6} md={4} lg={2.4}>
+          <Grid key={s.label} item xs={6} md={4} lg={2}>
             {q.isLoading ? <Skeleton variant="rounded" height={104} /> : <StatCard label={s.label} value={s.value ?? 0} icon={s.icon} color={s.color} hint={s.hint} />}
           </Grid>
         ))}
@@ -167,6 +169,16 @@ export default function Dashboard() {
             ) : <Empty>Nothing is overdue. 🎉</Empty>}
           </Card>
         </Grid>
+        {multiUser && d && d.daily_status.expected > 1 && (d.daily_status.missing_morning.length > 0 || d.daily_status.missing_eod.length > 0) && (
+          <Grid item xs={12}>
+            <Card title="Waiting for today's check-in">
+              <Typography variant="caption" color="text.secondary">Morning plan</Typography>
+              <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1.25 }}>{d.daily_status.missing_morning.length ? d.daily_status.missing_morning.map((n) => <Chip key={n} size="small" variant="outlined" color="warning" label={n} />) : <Chip size="small" color="success" label="Everyone has posted" />}</Box>
+              <Typography variant="caption" color="text.secondary">End-of-day update</Typography>
+              <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>{d.daily_status.missing_eod.length ? d.daily_status.missing_eod.map((n) => <Chip key={n} size="small" variant="outlined" label={n} />) : <Chip size="small" color="success" label="Everyone has posted" />}</Box>
+            </Card>
+          </Grid>
+        )}
         <Grid item xs={12} md={6}>
           <Card title={`Blockers${d ? ` (${d.blocked_count})` : ''}`}>
             {d?.blockers.length || d?.daily_status.blockers.length ? (

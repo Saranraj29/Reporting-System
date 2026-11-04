@@ -8,7 +8,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import Ctx, Page, get_ctx, paged, pagination, require, require_any
@@ -29,8 +28,16 @@ from ..services.timeutil import company_today, tzinfo
 
 router = APIRouter(tags=["tasks"])
 
-STATUSES = ("todo", "in_progress", "blocked", "in_review", "done")
+STATUSES = ("todo", "in_progress", "in_review", "testing", "blocked", "done")
 PRIORITIES = ("low", "medium", "high", "urgent")
+STATUS_LABEL = {
+    "todo": "To do", "in_progress": "In progress", "in_review": "In review", "testing": "Testing", "blocked": "Blocked", "done": "Done",
+}
+
+
+def _note(ctx: Ctx, task_id: uuid.UUID, text_: str) -> None:
+    """System note in the task's activity feed ("changed status from … to …"), authored by whoever did it."""
+    ctx.db.add(TaskComment(company_id=ctx.company_id, task_id=task_id, user_id=ctx.me.id, body=text_, kind="system"))
 
 
 # --------------------------------------------------------------------------- helpers
@@ -206,7 +213,7 @@ class TaskIn(BaseModel):
     description: str = ""
     activity_type: str = "Development"
     priority: str = Field(default="medium", pattern="^(low|medium|high|urgent)$")
-    status: str = Field(default="todo", pattern="^(todo|in_progress|blocked|in_review|done)$")
+    status: str = Field(default="todo", pattern="^(todo|in_progress|in_review|testing|blocked|done)$")
     eta_hours: float | None = Field(default=None, ge=0, le=9999)
     start_date: date | None = None
     due_date: date | None = None
@@ -220,15 +227,17 @@ class TaskPatch(BaseModel):
     description: str | None = None
     activity_type: str | None = None
     priority: str | None = Field(default=None, pattern="^(low|medium|high|urgent)$")
-    status: str | None = Field(default=None, pattern="^(todo|in_progress|blocked|in_review|done)$")
+    status: str | None = Field(default=None, pattern="^(todo|in_progress|in_review|testing|blocked|done)$")
     eta_hours: float | None = Field(default=None, ge=0, le=9999)
     start_date: date | None = None
     due_date: date | None = None
     custom_fields: dict[str, Any] | None = None
 
 
-def _apply_status(ctx: Ctx, task: Task, new_status: str) -> None:
+def _apply_status(ctx: Ctx, task: Task, new_status: str, note: bool = True) -> None:
     was_blocked = task.is_blocked
+    if note and new_status != task.status:
+        _note(ctx, task.id, f"changed status from **{STATUS_LABEL[task.status]}** to **{STATUS_LABEL[new_status]}**")
     task.status = new_status
     task.is_blocked = new_status == "blocked"
     if new_status == "done" and task.completed_at is None:
@@ -265,7 +274,8 @@ def create_task(body: TaskIn, ctx: Ctx = Depends(require("task.edit"))):
     ctx.db.add(task)
     ctx.db.flush()
     ctx.db.add_all(TaskAssignee(company_id=ctx.company_id, task_id=task.id, user_id=u) for u in set(assignees))
-    _apply_status(ctx, task, body.status)
+    _apply_status(ctx, task, body.status, note=False)
+    _note(ctx, task.id, "created this task")
     ctx.db.commit()
     return _task_out(ctx, [task])[0]
 
@@ -289,9 +299,14 @@ def patch_task(task_id: uuid.UUID, body: TaskPatch, ctx: Ctx = Depends(require("
         if not ctx.db.get(Project, data["project_id"]):
             raise bad_request("invalid_project", "Project does not exist")
         task.project_id = data["project_id"]
+    old_priority, old_due = task.priority, task.due_date
     for k in ("title", "description", "activity_type", "priority", "eta_hours", "start_date", "due_date"):
         if k in data and not (data[k] is None and k in ("title", "activity_type", "priority", "description")):
             setattr(task, k, data[k].strip() if k == "title" else data[k])
+    if task.priority != old_priority:
+        _note(ctx, task.id, f"changed priority from **{old_priority}** to **{task.priority}**")
+    if task.due_date != old_due:
+        _note(ctx, task.id, f"changed the due date to **{task.due_date.isoformat() if task.due_date else 'none'}**")
     _check_dates(task.start_date, task.due_date)
     if data.get("custom_fields") is not None:
         task.custom_fields = validate_custom_fields(defs, {**task.custom_fields, **data["custom_fields"]})
@@ -316,36 +331,53 @@ class AssigneesIn(BaseModel):
 def set_assignees(task_id: uuid.UUID, body: AssigneesIn, ctx: Ctx = Depends(require("task.edit"))):
     task = _editable_task(ctx, task_id)
     _check_assignees(ctx, body.user_ids)
+    before = {a["id"] for a in _assignee_map(ctx, [task.id]).get(task.id, [])}
     ctx.db.execute(delete(TaskAssignee).where(TaskAssignee.task_id == task.id))
     ctx.db.add_all(TaskAssignee(company_id=ctx.company_id, task_id=task.id, user_id=u) for u in set(body.user_ids))
+    if before != {str(u) for u in body.user_ids}:
+        names = ctx.db.execute(select(User.name).where(User.id.in_(set(body.user_ids))).order_by(User.name)).scalars().all()
+        _note(ctx, task.id, f"set the assignees to **{', '.join(names)}**")
     ctx.db.commit()
     return _task_out(ctx, [task])[0]
 
 
 class CommentIn(BaseModel):
-    body: str = Field(min_length=1, max_length=5000)
+    body: str = Field(min_length=1, max_length=10000)  # markdown
+    is_internal: bool = False  # internal notes are hidden from people who only see their own work
+
+
+def _can_see_internal(ctx: Ctx, task: Task) -> bool:
+    """Internal notes: author, anyone whose task view reaches beyond their own work (leads, managers, admins),
+    and the project's owners."""
+    return ctx.scope_of("task.view") in ("team", "all") or task.project_id in owned_project_ids(ctx.db, ctx.me.id)
+
+
+def _comment_out(c: TaskComment, name: str) -> dict:
+    return {
+        "id": str(c.id), "user_id": str(c.user_id), "user_name": name, "body": c.body, "kind": c.kind,
+        "is_internal": c.is_internal, "created_at": c.created_at.isoformat(),
+    }
 
 
 @router.get("/tasks/{task_id}/comments")
 def list_comments(task_id: uuid.UUID, ctx: Ctx = Depends(require("task.view"))):
-    _visible_task(ctx, task_id)
+    """The task's activity feed: comments and system notes, oldest first (the client sorts/filters)."""
+    task = _visible_task(ctx, task_id)
     rows = ctx.db.execute(
         select(TaskComment, User.name).join(User, User.id == TaskComment.user_id)
-        .where(TaskComment.task_id == task_id).order_by(TaskComment.created_at)
+        .where(TaskComment.task_id == task_id).order_by(TaskComment.created_at, TaskComment.id)
     ).all()
-    return {"items": [
-        {"id": str(c.id), "user_id": str(c.user_id), "user_name": n, "body": c.body, "created_at": c.created_at.isoformat()}
-        for c, n in rows
-    ]}
+    privileged = _can_see_internal(ctx, task)
+    return {"items": [_comment_out(c, n) for c, n in rows if not c.is_internal or privileged or c.user_id == ctx.me.id]}
 
 
 @router.post("/tasks/{task_id}/comments", status_code=201)
 def add_comment(task_id: uuid.UUID, body: CommentIn, ctx: Ctx = Depends(require("task.view"))):
     _visible_task(ctx, task_id)
-    c = TaskComment(company_id=ctx.company_id, task_id=task_id, user_id=ctx.me.id, body=body.body.strip())
+    c = TaskComment(company_id=ctx.company_id, task_id=task_id, user_id=ctx.me.id, body=body.body.strip(), is_internal=body.is_internal)
     ctx.db.add(c)
     ctx.db.commit()
-    return {"id": str(c.id), "user_id": str(c.user_id), "user_name": ctx.me.name, "body": c.body, "created_at": c.created_at.isoformat()}
+    return _comment_out(c, ctx.me.name)
 
 
 # --------------------------------------------------------------------------- time entries
@@ -424,6 +456,7 @@ def create_time_entry(body: EntryIn, ctx: Ctx = Depends(require("task.edit"))):
         raise bad_request("future_date", "Cannot log time in the future")
     e = TimeEntry(company_id=ctx.company_id, task_id=task.id, user_id=ctx.me.id, hours=Decimal(str(body.hours)), entry_date=day, note=body.note)
     ctx.db.add(e)
+    _note(ctx, task.id, f"logged **{body.hours:g}h**" + (f" — {body.note}" if body.note else ""))
     ctx.db.commit()
     return _entry_out(e, task.title, ctx.me.name)
 
@@ -461,6 +494,7 @@ def stop_timer(entry_id: uuid.UUID, ctx: Ctx = Depends(require("task.edit"))):
     e.stopped_at = now
     seconds = max((now - e.started_at).total_seconds(), 0)
     e.hours = min(Decimal(str(round(seconds / 3600, 2))), Decimal(24))
+    _note(ctx, e.task_id, f"tracked **{float(e.hours):g}h** with the timer")
     ctx.db.commit()
     return _entry_out(e)
 
@@ -506,7 +540,8 @@ def delete_time_entry(entry_id: uuid.UUID, ctx: Ctx = Depends(require("task.edit
 
 # --------------------------------------------------------------------------- daily status
 class StatusIn(BaseModel):
-    did_today: str = Field(default="", max_length=4000)
+    plan_today: str = Field(default="", max_length=4000)  # morning check-in
+    did_today: str = Field(default="", max_length=4000)  # end-of-day update
     next_up: str = Field(default="", max_length=4000)
     blockers: str = Field(default="", max_length=4000)
 
@@ -514,7 +549,9 @@ class StatusIn(BaseModel):
 def _status_out(s: DailyStatus, name: str | None = None) -> dict:
     return {
         "id": str(s.id), "user_id": str(s.user_id), "user_name": name, "status_date": s.status_date.isoformat(),
-        "did_today": s.did_today, "next_up": s.next_up, "blockers": s.blockers, "updated_at": s.updated_at.isoformat(),
+        "plan_today": s.plan_today, "did_today": s.did_today, "next_up": s.next_up, "blockers": s.blockers,
+        "morning_at": s.morning_at.isoformat() if s.morning_at else None,
+        "eod_at": s.eod_at.isoformat() if s.eod_at else None, "updated_at": s.updated_at.isoformat(),
     }
 
 
@@ -540,19 +577,50 @@ def list_daily_status(
     return {"items": [_status_out(s, n) for s, n in rows], "total": total, "page": page.page, "limit": page.limit}
 
 
+@router.get("/daily-status/summary")
+def daily_status_summary(
+    day: date | None = Query(default=None, alias="date"), ctx: Ctx = Depends(require("status.view")),
+):
+    """Who has posted the morning plan / end-of-day update for a day, and who has not (within my scope)."""
+    day = day or company_today(ctx.company.timezone)
+    ids = ctx.visible("status.view")
+    users = select(User.id, User.name).where(User.is_active.is_(True), User.email_verified_at.is_not(None)).order_by(User.name)
+    if ids is not None:
+        users = users.where(User.id.in_(ids))
+    people = ctx.db.execute(users).all()
+    rows = {r.user_id: r for r in ctx.db.execute(select(DailyStatus).where(DailyStatus.status_date == day)).scalars()}
+    return {
+        "date": day.isoformat(), "expected": len(people),
+        "morning_done": sum(1 for u, _ in people if u in rows and rows[u].morning_at),
+        "eod_done": sum(1 for u, _ in people if u in rows and rows[u].eod_at),
+        "missing_morning": [n for u, n in people if not (u in rows and rows[u].morning_at)],
+        "missing_eod": [n for u, n in people if not (u in rows and rows[u].eod_at)],
+        "blockers": [{"user": n, "text": rows[u].blockers} for u, n in people if u in rows and rows[u].blockers.strip()],
+    }
+
+
 @router.put("/daily-status/{status_date}")
 def put_daily_status(status_date: date, body: StatusIn, ctx: Ctx = Depends(require_any("status.view.own", "status.view.team", "status.view.all"))):
+    """One row per person per day with two check-ins: the morning plan and the end-of-day update, each timestamped the first
+    time it is filled in. Editable until midnight in the company's timezone."""
     today = company_today(ctx.company.timezone)
     if status_date > today:
         raise bad_request("future_date", "Cannot write a status for a future day")
-    if status_date < today:  # editable until midnight in the company's timezone
+    if status_date < today:
         raise ApiError(403, "status_locked", "Daily status can only be edited on the day it belongs to")
-    stmt = pg_insert(DailyStatus).values(
-        company_id=ctx.company_id, user_id=ctx.me.id, status_date=status_date, **body.model_dump()
-    )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["user_id", "status_date"], set_={**body.model_dump(), "updated_at": func.now()}
-    ).returning(DailyStatus.id)
-    sid = ctx.db.execute(stmt).scalar_one()
-    ctx.db.commit()
-    return _status_out(ctx.db.get(DailyStatus, sid, populate_existing=True), ctx.me.name)
+    row = ctx.db.execute(select(DailyStatus).where(DailyStatus.user_id == ctx.me.id, DailyStatus.status_date == status_date)).scalar_one_or_none()
+    if row is None:
+        row = DailyStatus(company_id=ctx.company_id, user_id=ctx.me.id, status_date=status_date)
+        ctx.db.add(row)
+    now = datetime.now(UTC)
+    row.plan_today, row.did_today, row.next_up, row.blockers = body.plan_today, body.did_today, body.next_up, body.blockers
+    if body.plan_today.strip() and row.morning_at is None:
+        row.morning_at = now
+    if body.did_today.strip() and row.eod_at is None:
+        row.eod_at = now
+    try:
+        ctx.db.commit()
+    except IntegrityError:  # two tabs saving at once: the other one created the row first
+        ctx.db.rollback()
+        raise conflict("status_conflict", "Your status was just saved from another tab; reload and try again") from None
+    return _status_out(row, ctx.me.name)

@@ -46,7 +46,8 @@ def test_owner_sees_all_tasks_in_their_project_only(proj):
     assert titles(proj.m1, project=proj.hermes["id"]) == set()
     # comments are readable and writable on tasks they can see
     assert proj.m1.post(f"/tasks/{proj.t_max['id']}/comments", {"body": "How is it going?"}).status_code == 201
-    assert len(proj.m2.get(f"/tasks/{proj.t_max['id']}/comments").json()["items"]) == 1
+    human = [c for c in proj.m2.get(f"/tasks/{proj.t_max['id']}/comments").json()["items"] if c["kind"] == "comment"]
+    assert len(human) == 1
 
 
 def test_owner_view_does_not_grant_edit_rights(proj):

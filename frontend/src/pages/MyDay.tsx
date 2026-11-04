@@ -104,7 +104,7 @@ export default function MyDay() {
           <Stack spacing={2.5}>
             {hasAny('status.view') && (
               <Paper sx={{ p: 3 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Daily status · {fmtDate(today())}</Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Daily check-in · {fmtDate(today())}</Typography>
                 <DailyStatusForm />
               </Paper>
             )}
@@ -113,7 +113,8 @@ export default function MyDay() {
               {statuses.data?.items.length ? statuses.data.items.map((s) => (
                 <Box key={s.id} sx={{ py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
                   <Typography variant="caption" color="text.secondary">{fmtDate(s.status_date)}</Typography>
-                  <Typography variant="body2">{s.did_today || '—'}</Typography>
+                  {s.plan_today && <Typography variant="body2"><b>Plan:</b> {s.plan_today}</Typography>}
+                  <Typography variant="body2"><b>Done:</b> {s.did_today || '—'}</Typography>
                   {s.blockers && <Alert severity="warning" sx={{ mt: 0.75, py: 0 }}>{s.blockers}</Alert>}
                 </Box>
               )) : <Empty>No statuses yet.</Empty>}

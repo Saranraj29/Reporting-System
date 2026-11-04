@@ -32,6 +32,8 @@ def schedule_tick(now: datetime | None = None) -> int:
             local = company_now(c.timezone, now)
             day, t, wk = local.date(), local.time(), local.weekday()
             cid = str(c.id)
+            if wk < 5 and t >= dtime(10, 0):
+                queued += jobs.enqueue(db, "cron.morning_plan", cid, {"date": day.isoformat()}, dedupe_key=f"morning:{cid}:{day}")
             if wk < 5 and t >= dtime(17, 30):
                 queued += jobs.enqueue(db, "cron.daily_missing", cid, {"date": day.isoformat()}, dedupe_key=f"daily:{cid}:{day}")
             if t >= dtime(9, 0):

@@ -122,7 +122,54 @@ def summary_figures(rc: ReportContext) -> dict[str, Any]:
                 ORDER BY hours DESC, u.name"""), p)
             if r.hours or r.completed
         ]
+        figures.update(check_in_figures(rc))
     return figures
+
+
+def working_days(start: date, end: date) -> int:
+    return sum(1 for i in range((end - start).days + 1) if (start + timedelta(days=i)).weekday() < 5)
+
+
+def check_in_figures(rc: ReportContext) -> dict[str, Any]:
+    """Morning plan / end-of-day update tracking for the people in scope. Internal reports only: these keys hold the text
+    people wrote, so they are stripped before anything goes to an LLM (services/ai.FORBIDDEN_KEYS)."""
+    db, p = rc.db, rc.params
+    last = min(rc.end, rc.today)
+    days = working_days(rc.start, last) if last >= rc.start else 0
+    people = db.execute(
+        text("""
+        SELECT u.id, u.name,
+          count(d.id) FILTER (WHERE d.morning_at IS NOT NULL) AS morning_days,
+          count(d.id) FILTER (WHERE d.eod_at IS NOT NULL) AS eod_days,
+          count(d.id) FILTER (WHERE d.blockers <> '') AS blocker_days
+        FROM users u LEFT JOIN daily_status d ON d.user_id = u.id AND d.status_date BETWEEN :from AND :to
+        WHERE u.is_active AND (CAST(:uids AS uuid[]) IS NULL OR u.id = ANY(CAST(:uids AS uuid[])))
+        GROUP BY u.id, u.name ORDER BY u.name"""), p).all()
+    rate = lambda n: round(n / days * 100) if days else None  # noqa: E731
+    per_person = [
+        {"name": r.name, "working_days": days, "morning_plans": r.morning_days, "eod_updates": r.eod_days,
+         "morning_rate": rate(r.morning_days), "eod_rate": rate(r.eod_days), "days_with_blockers": r.blocker_days}
+        for r in people
+    ]
+    entries = [
+        {"date": _d(r.status_date), "name": r.name, "morning_plan": r.plan_today, "morning_at": r.morning_at.strftime("%H:%M") if r.morning_at else None,
+         "done": r.did_today, "eod_at": r.eod_at.strftime("%H:%M") if r.eod_at else None, "next_up": r.next_up, "blockers": r.blockers}
+        for r in db.execute(
+            text("""SELECT d.status_date, u.name, d.plan_today, d.morning_at, d.did_today, d.eod_at, d.next_up, d.blockers
+                    FROM daily_status d JOIN users u ON u.id = d.user_id
+                    WHERE d.status_date BETWEEN :from AND :to AND (CAST(:uids AS uuid[]) IS NULL OR d.user_id = ANY(CAST(:uids AS uuid[])))
+                    ORDER BY d.status_date DESC, u.name LIMIT 200"""), p)
+    ]
+    expected = days * len(people)
+    return {
+        "check_in_totals": {
+            "working_days": days, "people": len(people),
+            "morning_plans": sum(x["morning_plans"] for x in per_person), "eod_updates": sum(x["eod_updates"] for x in per_person),
+            "morning_rate": round(sum(x["morning_plans"] for x in per_person) / expected * 100) if expected else None,
+            "eod_rate": round(sum(x["eod_updates"] for x in per_person) / expected * 100) if expected else None,
+        },
+        "check_ins": per_person, "check_in_entries": entries,
+    }
 
 
 def previous_period(start: date, end: date) -> tuple[date, date]:

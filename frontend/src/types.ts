@@ -98,6 +98,10 @@ export interface DailyStatus {
   user_id: string
   user_name: string | null
   status_date: string
+  plan_today: string
+  morning_at: string | null
+  updated_at: string
+  eod_at: string | null
   did_today: string
   next_up: string
   blockers: string
@@ -173,7 +177,15 @@ export interface Dashboard {
   hours_by_day: { date: string; hours: number }[]
   overdue_tasks: { id: string; title: string; priority: string; status: string; project: string; due_date: string | null; assignees: string }[]
   blockers: { id: string; title: string; priority: string; status: string; project: string; due_date: string | null; assignees: string }[]
-  daily_status: { expected: number; submitted_today: number; blockers: { user: string; date: string; text: string }[] }
+  daily_status: {
+    expected: number
+    submitted_today: number
+    morning_today: number
+    eod_today: number
+    missing_morning: string[]
+    missing_eod: string[]
+    blockers: { user: string; date: string; text: string }[]
+  }
 }
 export interface Settings {
   name: string
@@ -183,4 +195,22 @@ export interface Settings {
   report_email_day: number | null
   slack_configured: boolean
   slack_webhook_hint?: string
+}
+export interface Comment {
+  id: string
+  user_id: string
+  user_name: string
+  body: string
+  kind: 'comment' | 'system'
+  is_internal: boolean
+  created_at: string
+}
+export interface CheckInSummary {
+  date: string
+  expected: number
+  morning_done: number
+  eod_done: number
+  missing_morning: string[]
+  missing_eod: string[]
+  blockers: { user: string; text: string }[]
 }

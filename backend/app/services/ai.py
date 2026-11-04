@@ -11,7 +11,9 @@ import httpx
 
 from ..config import get_settings
 
-FORBIDDEN_KEYS = {"people", "comments", "daily_status", "performance", "email", "emails"}
+FORBIDDEN_KEYS = {
+    "people", "comments", "daily_status", "performance", "email", "emails", "check_in_totals", "check_ins", "check_in_entries",
+}
 
 SYSTEM_PROMPT = """You write the narrative sections of a report that a company sends to its client.
 Rules you must follow:

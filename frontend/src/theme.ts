@@ -3,15 +3,18 @@ import { createTheme } from '@mui/material/styles'
 export const STATUS_COLORS: Record<string, string> = {
   todo: '#8a94a6',
   in_progress: '#3b5bdb',
-  blocked: '#e03131',
   in_review: '#f59f00',
+  testing: '#7048e8',
+  blocked: '#e03131',
   done: '#2f9e44',
 }
+// object order = the order in menus and charts
 export const STATUS_LABELS: Record<string, string> = {
   todo: 'To do',
   in_progress: 'In progress',
-  blocked: 'Blocked',
   in_review: 'In review',
+  testing: 'Testing',
+  blocked: 'Blocked',
   done: 'Done',
 }
 export const PRIORITY_COLORS: Record<string, 'default' | 'info' | 'warning' | 'error'> = {

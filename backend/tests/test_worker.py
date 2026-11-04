@@ -30,9 +30,9 @@ def test_daily_status_reminder_goes_only_to_people_with_nothing_logged(work, own
         jobs.enqueue(db, "cron.daily_missing", cid, {"date": work.today.isoformat()})
     mail.outbox.clear()
     drain()
-    reminded = {m["to"] for m in mail.outbox if "log today" in m["subject"]}
-    # Mia wrote a status, Max and Olive logged time; admin, manager and lead logged nothing
-    assert reminded == {"admin@acme.com", "maya.manager@acme.com", "leo.lead@acme.com"}
+    reminded = {m["to"] for m in mail.outbox if "end-of-day update" in m["subject"]}
+    # only Mia posted an end-of-day update; logging hours alone does not count
+    assert reminded == {"admin@acme.com", "maya.manager@acme.com", "leo.lead@acme.com", "max.member@acme.com", "olive.outsider@acme.com"}
 
 
 def test_schedule_tick_times_dedupe_and_timezones(org, owner_conn):
@@ -40,11 +40,11 @@ def test_schedule_tick_times_dedupe_and_timezones(org, owner_conn):
     kinds = lambda: sorted(r[0] for r in owner_conn.execute("SELECT kind FROM jobs WHERE kind LIKE 'cron.%'"))  # noqa: E731
     monday_11_30_utc = dt.datetime(2026, 11, 2, 11, 30, tzinfo=dt.UTC)  # 17:00 in Kolkata
     schedule_tick(monday_11_30_utc)
-    assert kinds() == ["cron.due", "cron.report_email"]  # >= 09:00 and >= 07:00 on the report day (Monday); not yet 17:30
+    assert kinds() == ["cron.due", "cron.morning_plan", "cron.report_email"]  # >= 09:00 / 10:00 / 07:00 (report day Monday); not yet 17:30
     schedule_tick(monday_11_30_utc + dt.timedelta(minutes=45))  # 18:15 local
-    assert kinds() == ["cron.daily_missing", "cron.due", "cron.report_email"]
+    assert kinds() == ["cron.daily_missing", "cron.due", "cron.morning_plan", "cron.report_email"]
     schedule_tick(monday_11_30_utc + dt.timedelta(minutes=50))  # same day again: nothing new
-    assert len(kinds()) == 3
+    assert len(kinds()) == 4
     sat = dt.datetime(2026, 11, 7, 14, 0, tzinfo=dt.UTC)
     owner_conn.execute("TRUNCATE jobs")
     schedule_tick(sat)

@@ -23,7 +23,6 @@ from ..models import (
     TaskAssignee,
     Team,
     TeamMember,
-    TimeEntry,
     User,
     UserRole,
 )
@@ -102,18 +101,23 @@ def notify_blocker(db: Session, job: Job) -> None:
         _enqueue_notify(db, job.company_id, u, "blocker", subject, body)
 
 
+@handler("cron.morning_plan")
+def cron_morning_plan(db: Session, job: Job) -> None:
+    day = date.fromisoformat(job.payload["date"])
+    posted = select(DailyStatus.user_id).where(DailyStatus.status_date == day, DailyStatus.morning_at.is_not(None))
+    for u in db.execute(select(User).where(User.is_active.is_(True), User.email_verified_at.is_not(None), User.id.not_in(posted))).scalars():
+        _enqueue_notify(db, job.company_id, u, "morning_plan", "Share your plan for today",
+                        f"Good morning {u.name}! Post your morning check-in so the team knows what you are working on:\n{_web('/my-day')}")
+
+
 @handler("cron.daily_missing")
 def cron_daily_missing(db: Session, job: Job) -> None:
+    """End-of-day reminder: everyone who has not posted an end-of-day update (hours alone do not count)."""
     day = date.fromisoformat(job.payload["date"])
-    has_status = select(DailyStatus.user_id).where(DailyStatus.status_date == day)
-    has_time = select(TimeEntry.user_id).where(TimeEntry.entry_date == day)
-    users = db.execute(
-        select(User).where(User.is_active.is_(True), User.email_verified_at.is_not(None),
-                           User.id.not_in(has_status), User.id.not_in(has_time))
-    ).scalars()
-    for u in users:
-        _enqueue_notify(db, job.company_id, u, "daily_missing", "Please log today's status and time",
-                        f"Hi {u.name}, nothing is logged for {day:%d %b}. Add your daily status and hours:\n{_web('/my-day')}")
+    posted = select(DailyStatus.user_id).where(DailyStatus.status_date == day, DailyStatus.eod_at.is_not(None))
+    for u in db.execute(select(User).where(User.is_active.is_(True), User.email_verified_at.is_not(None), User.id.not_in(posted))).scalars():
+        _enqueue_notify(db, job.company_id, u, "daily_missing", "Please post your end-of-day update",
+                        f"Hi {u.name}, no end-of-day update for {day:%d %b} yet. What did you get done, what's next, any blockers?\n{_web('/my-day')}")
 
 
 @handler("cron.due")

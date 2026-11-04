@@ -29,3 +29,11 @@ export const elapsed = (startIso: string, now: number) => {
 /** The UI never names the LLM vendor: a draft is either AI-written or built from the figures only. */
 export const providerLabel = (p?: string | null) => (p === 'figures_only' ? 'Figures only' : p ? 'AI draft' : '—')
 export const isAi = (p?: string | null) => !!p && p !== 'figures_only'
+export const clock = (d?: string | null) => (d ? new Date(d).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '')
+export const ago = (d: string) => {
+  const s = Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 1000))
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`
+  return fmtDateTime(d)
+}

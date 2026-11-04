@@ -20,7 +20,7 @@ Three deployables, one codebase, one database:
 | ![My day](docs/screenshots/13-my-day.png) **My day** — timer, time log, daily status | ![Report review](docs/screenshots/09-report-review.png) **AI-drafted client report review** |
 | ![Shared page](docs/screenshots/11-shared-report.png) **Public client page** (no login, expires) | ![Roles](docs/screenshots/16-admin-roles.png) **Roles & permissions** (data, not code) |
 
-All 25 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
+All 28 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
 
 ## Run it
 
@@ -90,7 +90,7 @@ figures only). Adding another provider = one function in [`services/ai.py`](back
 ## Tests and CI
 
 ```bash
-cd backend  && pytest          # 125 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
+cd backend  && pytest          # 141 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
 cd frontend && npm test        # 15 unit tests;  npm run typecheck;  npm run build
 cd e2e && node ui.cjs          # browser tour against the running stack (+ screenshots); needs a fresh seed and
                                # AUTH_RATE_LIMIT_PER_MIN=0 on the API (the tour logs in ~13 times from one IP)
@@ -114,6 +114,14 @@ partial-failure retry, and schedule timing per company timezone.
   and the worker's company scan use four narrow `SECURITY DEFINER` functions. ([`0001_initial.sql`](backend/alembic/versions/0001_initial.sql))
 * **Roles & permissions** – ~26 `area.action.scope` keys in code, roles are rows. `require("task.view")` resolves the
   highest scope the user holds; `own`/`team`/`all` become query filters ([`perms.py`](backend/app/perms.py), [`deps.py`](backend/app/deps.py)).
+* **Task panel (GitLab-style issue view)** – status menu incl. **Testing**, sidebar with assignees / priority / due date / time tracking /
+  timer, and an **Activity** feed: markdown comments (toolbar, preview), *internal notes* (author, leads, managers, admins and project owners
+  only), and system notes written by the API ("changed status from … to …", "logged 2h", assignee/priority/due-date changes). *Close issue* /
+  *Reopen issue* mark the task done / to do.
+* **Daily check-ins** – two timestamped check-ins per person per day: the **morning plan** and the **end-of-day update** (editable until
+  midnight, company timezone). Tracked everywhere: *My day* form, team **Check-ins** page (who posted, who is missing, blockers, log),
+  dashboard cards, the weekly/monthly report (per-person completion rates + the log; internal reports only, never sent to a client or an LLM),
+  and reminders (10:00 "share your plan", 17:30 "post your end-of-day update").
 * **Project owners** – a project can have owners (Admin → Projects & clients). An owner sees every task, comment, time entry and
   dashboard figure inside that project, whoever created it or is assigned to it (view only; editing still follows `task.edit.*`,
   and daily-status text is never widened). Company Admin, Manager and CEO/CTO hold `…view.all`, so they see every project.

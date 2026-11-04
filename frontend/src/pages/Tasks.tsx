@@ -1,21 +1,18 @@
 import AddIcon from '@mui/icons-material/Add'
-import CloseIcon from '@mui/icons-material/Close'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
-import StopIcon from '@mui/icons-material/Stop'
 import SearchIcon from '@mui/icons-material/Search'
 import {
-  Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControlLabel, Grid, IconButton,
+  Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Grid,
   InputAdornment, LinearProgress, MenuItem, Pagination, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api'
 import { useAuth } from '../auth'
+import { TaskPanel } from '../components/TaskPanel'
 import { AssigneeAvatars, Empty, ErrorAlert, PageHeader, PriorityChip, StatusChip } from '../components/ui'
-import { elapsed, fmtDate, fmtDateTime, hours, today } from '../format'
+import { fmtDate, hours } from '../format'
 import { STATUS_LABELS } from '../theme'
-import { useNow, useRunningTimer, useTimerActions } from '../timer'
-import type { Page, Project, Task, TaskField, TimeEntry, UserLite } from '../types'
+import type { Page, Project, Task, TaskField, UserLite } from '../types'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent']
 
@@ -137,7 +134,7 @@ export default function Tasks() {
         )}
       </Paper>
       {dialog && <TaskDialog task={dialog === 'new' ? null : dialog} onClose={() => setDialog(null)} />}
-      <TaskDrawer id={openId} onClose={() => setOpenId(null)} onEdit={(t) => { setOpenId(null); setDialog(t) }} canLog={can('task.edit.own') || can('task.edit.team') || can('task.edit.all')} />
+      <TaskPanel id={openId} onClose={() => setOpenId(null)} onEdit={(t) => { setOpenId(null); setDialog(t) }} canLog={can('task.edit.own') || can('task.edit.team') || can('task.edit.all')} />
     </>
   )
 }
@@ -263,117 +260,5 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
         </Button>
       </DialogActions>
     </Dialog>
-  )
-}
-
-function TaskDrawer({ id, onClose, onEdit, canLog }: { id: string | null; onClose: () => void; onEdit: (t: Task) => void; canLog: boolean }) {
-  const qc = useQueryClient()
-  const task = useQuery({ queryKey: ['task', id], queryFn: () => api.get<Task>(`/tasks/${id}`), enabled: !!id })
-  const comments = useQuery({ queryKey: ['comments', id], queryFn: () => api.get<{ items: { id: string; user_name: string; body: string; created_at: string }[] }>(`/tasks/${id}/comments`), enabled: !!id })
-  const entries = useQuery({ queryKey: ['entries', id], queryFn: () => api.get<Page<TimeEntry>>('/time-entries', { task: id, limit: 50 }), enabled: !!id })
-  const [comment, setComment] = useState('')
-  const [log, setLog] = useState({ hours: '', note: '' })
-  const t = task.data
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ['task', id] })
-    qc.invalidateQueries({ queryKey: ['tasks'] })
-    qc.invalidateQueries({ queryKey: ['entries', id] })
-    qc.invalidateQueries({ queryKey: ['dashboard'] })
-  }
-  const addComment = useMutation({ mutationFn: () => api.post(`/tasks/${id}/comments`, { body: comment }), onSuccess: () => { setComment(''); qc.invalidateQueries({ queryKey: ['comments', id] }) } })
-  const setStatus = useMutation({ mutationFn: (status: string) => api.patch(`/tasks/${id}`, { status }), onSuccess: refresh })
-  const logTime = useMutation({ mutationFn: () => api.post('/time-entries', { task_id: id, hours: Number(log.hours), entry_date: today(), note: log.note }), onSuccess: () => { setLog({ hours: '', note: '' }); refresh() } })
-  const running = useRunningTimer().data
-  const { start, stop } = useTimerActions()
-  const now = useNow()
-  const runningHere = !!running && running.task_id === id
-
-  return (
-    <Drawer anchor="right" open={!!id} onClose={onClose} PaperProps={{ sx: { width: { xs: '100%', sm: 480 }, p: 3 } }}>
-      {t && (
-        <Stack spacing={2.5}>
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-            <Typography variant="h6" sx={{ pr: 2 }}>{t.title}</Typography>
-            <IconButton onClick={onClose} aria-label="Close"><CloseIcon /></IconButton>
-          </Stack>
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <StatusChip status={t.status} />
-            <PriorityChip priority={t.priority} />
-            {t.overdue && <Typography variant="caption" color="error" sx={{ alignSelf: 'center', fontWeight: 700 }}>OVERDUE</Typography>}
-          </Stack>
-          {t.description && <Typography variant="body2" color="text.secondary">{t.description}</Typography>}
-          <Grid container spacing={1.5}>
-            {[['Project', t.project_name], ['Activity', t.activity_type], ['Start', fmtDate(t.start_date)], ['Due', fmtDate(t.due_date)], ['ETA', t.eta_hours != null ? hours(t.eta_hours) : '—'], ['Actual', hours(t.actual_hours)]].map(([k, v]) => (
-              <Grid item xs={6} key={k}><Typography variant="caption" color="text.secondary">{k}</Typography><Typography variant="body2" sx={{ fontWeight: 600 }}>{v}</Typography></Grid>
-            ))}
-          </Grid>
-          <Box><Typography variant="caption" color="text.secondary">Assignees</Typography><AssigneeAvatars people={t.assignees} max={6} /></Box>
-          {t.can_edit && (
-            <Stack direction="row" spacing={1}>
-              <TextField select size="small" label="Move to" value="" onChange={(e) => setStatus.mutate(e.target.value)} sx={{ minWidth: 150 }}>
-                {Object.entries(STATUS_LABELS).filter(([k]) => k !== t.status).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
-              </TextField>
-              <Button variant="outlined" onClick={() => onEdit(t)}>Edit</Button>
-            </Stack>
-          )}
-          {setStatus.error && <Alert severity="error">{errorMessage(setStatus.error)}</Alert>}
-          <Divider />
-          {canLog && t.assignees.length > 0 && (
-            <Stack spacing={1}>
-              <Typography variant="subtitle2">Log time</Typography>
-              <Stack direction="row" spacing={1}>
-                <TextField size="small" type="number" label="Hours" value={log.hours} onChange={(e) => setLog({ ...log, hours: e.target.value })} sx={{ width: 100 }} inputProps={{ min: 0.25, max: 24, step: 0.25 }} />
-                <TextField size="small" label="Note" value={log.note} onChange={(e) => setLog({ ...log, note: e.target.value })} fullWidth />
-                <Button variant="contained" disabled={!log.hours || logTime.isPending} onClick={() => logTime.mutate()}>Add</Button>
-              </Stack>
-              {(logTime.error || start.error || stop.error) && <Alert severity="error">{errorMessage(logTime.error ?? start.error ?? stop.error)}</Alert>}
-              <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, bgcolor: runningHere ? '#fff5f5' : '#f9fafc', borderColor: runningHere ? '#ffc9c9' : undefined }}>
-                {runningHere && running?.started_at ? (
-                  <>
-                    <Box><Typography variant="caption" color="error" sx={{ fontWeight: 700 }}>TIMER RUNNING</Typography><Typography variant="h6" sx={{ fontVariantNumeric: 'tabular-nums' }}>{elapsed(running.started_at, now)}</Typography></Box>
-                    <Button variant="contained" color="error" startIcon={<StopIcon />} disabled={stop.isPending} onClick={() => stop.mutate(running.id)}>Stop timer</Button>
-                  </>
-                ) : running ? (
-                  <>
-                    <Typography variant="body2">A timer is already running on <b>{running.task_title}</b>.</Typography>
-                    <Button variant="outlined" color="error" size="small" startIcon={<StopIcon />} disabled={stop.isPending} onClick={() => stop.mutate(running.id)}>Stop it</Button>
-                  </>
-                ) : (
-                  <>
-                    <Typography variant="body2" color="text.secondary">Track time as you work</Typography>
-                    <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={start.isPending} onClick={() => start.mutate(id!)}>Start timer</Button>
-                  </>
-                )}
-              </Paper>
-            </Stack>
-          )}
-          <Box>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>Time entries</Typography>
-            {entries.data?.items.length ? entries.data.items.map((e) => (
-              <Stack key={e.id} direction="row" justifyContent="space-between" sx={{ py: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="body2">{e.user_name} · {fmtDate(e.entry_date)}{e.note ? ` · ${e.note}` : ''}</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>{e.running ? 'running' : hours(e.hours)}</Typography>
-              </Stack>
-            )) : <Typography variant="body2" color="text.secondary">No time logged yet.</Typography>}
-          </Box>
-          <Divider />
-          <Box>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>Comments</Typography>
-            <Stack spacing={1.25}>
-              {comments.data?.items.map((c) => (
-                <Paper key={c.id} sx={{ p: 1.5, bgcolor: '#f9fafc' }}>
-                  <Typography variant="caption" color="text.secondary">{c.user_name} · {fmtDateTime(c.created_at)}</Typography>
-                  <Typography variant="body2">{c.body}</Typography>
-                </Paper>
-              ))}
-              <Stack direction="row" spacing={1}>
-                <TextField size="small" fullWidth placeholder="Add a comment" value={comment} onChange={(e) => setComment(e.target.value)} />
-                <Button variant="outlined" disabled={!comment.trim()} onClick={() => addComment.mutate()}>Post</Button>
-              </Stack>
-            </Stack>
-          </Box>
-        </Stack>
-      )}
-    </Drawer>
   )
 }

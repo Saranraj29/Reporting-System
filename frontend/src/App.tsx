@@ -6,6 +6,7 @@ import AdminProjects from './pages/AdminProjects'
 import AdminSettings from './pages/AdminSettings'
 import AdminUsers from './pages/AdminUsers'
 import { ForgotPassword, Login, Register, ResetPassword, VerifyEmail } from './pages/Auth'
+import CheckIns from './pages/CheckIns'
 import ClientReports, { RunReview } from './pages/ClientReports'
 import Dashboard from './pages/Dashboard'
 import MyDay from './pages/MyDay'
@@ -48,6 +49,7 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/my-day" element={<MyDay />} />
+        <Route path="/check-ins" element={<CheckIns />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/reports/runs/:id" element={<ExportRun />} />
         <Route path="/client-reports" element={<ClientReports />} />
