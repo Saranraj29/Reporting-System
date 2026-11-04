@@ -34,16 +34,18 @@ function Projects() {
   const [dlg, setDlg] = useState<Project | 'new' | null>(null)
   const [f, setF] = useState({ name: '', client_id: '', status: 'active', start_date: '', end_date: '' })
   const [members, setMembers] = useState<UserLite[]>([])
+  const [owners, setOwners] = useState<UserLite[]>([])
   const open = (p: Project | 'new') => {
     setDlg(p)
     setF(p === 'new' ? { name: '', client_id: '', status: 'active', start_date: '', end_date: '' } : { name: p.name, client_id: p.client_id ?? '', status: p.status, start_date: p.start_date ?? '', end_date: p.end_date ?? '' })
-    setMembers(p === 'new' ? [] : users.filter((u) => p.member_ids.includes(u.id)))
+    setMembers(p === 'new' ? [] : users.filter((u) => p.member_ids.includes(u.id) && !p.owner_ids.includes(u.id)))
+    setOwners(p === 'new' ? [] : users.filter((u) => p.owner_ids.includes(u.id)))
   }
   const save = useMutation({
     mutationFn: async () => {
       const body = { ...f, client_id: f.client_id || null, start_date: f.start_date || null, end_date: f.end_date || null }
       const p = dlg === 'new' ? await api.post<Project>('/projects', body) : await api.patch<Project>(`/projects/${(dlg as Project).id}`, body)
-      await api.put(`/projects/${p.id}/members`, { user_ids: members.map((m) => m.id) })
+      await api.put(`/projects/${p.id}/members`, { user_ids: members.map((m) => m.id), owner_ids: owners.map((m) => m.id) })
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['projects'] }); setDlg(null) },
   })
@@ -52,7 +54,7 @@ function Projects() {
       <Button variant="contained" startIcon={<AddIcon />} sx={{ mb: 2 }} onClick={() => open('new')}>New project</Button>
       <Paper sx={{ overflow: 'hidden' }}>
         <Table>
-          <TableHead><TableRow><TableCell>Project</TableCell><TableCell>Client</TableCell><TableCell>Status</TableCell><TableCell>Dates</TableCell><TableCell>Members</TableCell></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>Project</TableCell><TableCell>Client</TableCell><TableCell>Status</TableCell><TableCell>Dates</TableCell><TableCell>Owners</TableCell><TableCell>Members</TableCell></TableRow></TableHead>
           <TableBody>
             {projects.data?.items.map((p) => (
               <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} onClick={() => open(p)}>
@@ -60,6 +62,7 @@ function Projects() {
                 <TableCell>{p.client_name ?? '—'}</TableCell>
                 <TableCell><Chip size="small" label={titleCase(p.status)} color={p.status === 'active' ? 'success' : 'default'} variant="outlined" /></TableCell>
                 <TableCell>{fmtDate(p.start_date)} – {fmtDate(p.end_date)}</TableCell>
+                <TableCell>{p.owner_ids.length ? p.owner_ids.map((id) => users.find((u) => u.id === id)?.name ?? '…').join(', ') : '—'}</TableCell>
                 <TableCell>{p.member_ids.length}</TableCell>
               </TableRow>
             ))}
@@ -81,7 +84,8 @@ function Projects() {
                 <TextField fullWidth type="date" label="Start" InputLabelProps={{ shrink: true }} value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} />
                 <TextField fullWidth type="date" label="End" InputLabelProps={{ shrink: true }} value={f.end_date} onChange={(e) => setF({ ...f, end_date: e.target.value })} />
               </Stack>
-              <Autocomplete multiple options={users} value={members} onChange={(_, v) => setMembers(v)} getOptionLabel={(u) => u.name} isOptionEqualToValue={(a, b) => a.id === b.id} renderInput={(p) => <TextField {...p} label="Members" />} />
+              <Autocomplete multiple options={users} value={owners} onChange={(_, v) => setOwners(v)} getOptionLabel={(u) => u.name} isOptionEqualToValue={(a, b) => a.id === b.id} renderInput={(p) => <TextField {...p} label="Project owners" helperText="Owners can see every task in this project, whoever created it or is assigned to it" />} />
+              <Autocomplete multiple options={users} value={members} onChange={(_, v) => setMembers(v)} getOptionLabel={(u) => u.name} isOptionEqualToValue={(a, b) => a.id === b.id} renderInput={(p) => <TextField {...p} label="Other members" helperText="Owners are added as members automatically" />} />
               <ErrorAlert error={save.error} />
             </Stack>
           </DialogContent>

@@ -132,6 +132,7 @@ class ProjectMember(Base):
     company_id: Mapped[uuid.UUID] = _cid()
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    is_owner: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Task(Base, Stamps):

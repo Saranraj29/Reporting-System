@@ -20,7 +20,7 @@ Three deployables, one codebase, one database:
 | ![My day](docs/screenshots/13-my-day.png) **My day** — timer, time log, daily status | ![Report review](docs/screenshots/09-report-review.png) **AI-drafted client report review** |
 | ![Shared page](docs/screenshots/11-shared-report.png) **Public client page** (no login, expires) | ![Roles](docs/screenshots/16-admin-roles.png) **Roles & permissions** (data, not code) |
 
-All 19 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
+All 21 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
 
 ## Run it
 
@@ -95,6 +95,9 @@ partial-failure retry, and schedule timing per company timezone.
   and the worker's company scan use four narrow `SECURITY DEFINER` functions. ([`0001_initial.sql`](backend/alembic/versions/0001_initial.sql))
 * **Roles & permissions** – ~26 `area.action.scope` keys in code, roles are rows. `require("task.view")` resolves the
   highest scope the user holds; `own`/`team`/`all` become query filters ([`perms.py`](backend/app/perms.py), [`deps.py`](backend/app/deps.py)).
+* **Project owners** – a project can have owners (Admin → Projects & clients). An owner sees every task, comment, time entry and
+  dashboard figure inside that project, whoever created it or is assigned to it (view only; editing still follows `task.edit.*`,
+  and daily-status text is never widened). Company Admin, Manager and CEO/CTO hold `…view.all`, so they see every project.
 * **Configurable by data** – roles, task fields (built-ins can be hidden, never dropped), report templates, schedules, Slack link.
 * **Reports are plug-ins** – one module per report in [`reports/`](backend/app/reports) (`weekly`, `monthly`, `performance`);
   exporters and the AI step only see the `figures` JSON.

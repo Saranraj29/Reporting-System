@@ -52,6 +52,7 @@ export interface Project {
   start_date: string | null
   end_date: string | null
   member_ids: string[]
+  owner_ids: string[]
 }
 export interface Client {
   id: string

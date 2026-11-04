@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import select, union
 from sqlalchemy.orm import Session
 
-from ..models import RolePermission, Team, TeamMember, UserRole
+from ..models import ProjectMember, RolePermission, Team, TeamMember, UserRole
 from ..perms import best_scope
 
 _CACHE: dict[uuid.UUID, tuple[float, frozenset[str]]] = {}
@@ -53,3 +53,9 @@ def visible_users(db: Session, user_id: uuid.UUID, perms: frozenset[str], base: 
     if scope == "own":
         return scope, {user_id}
     return scope, team_user_ids(db, user_id)
+
+
+def owned_project_ids(db: Session, user_id: uuid.UUID) -> list[uuid.UUID]:
+    """Projects the user owns. Owners see every task, comment and time entry in those projects,
+    regardless of who created or is assigned to them (view access; editing still follows task.edit.*)."""
+    return list(db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == user_id, ProjectMember.is_owner.is_(True))).scalars())

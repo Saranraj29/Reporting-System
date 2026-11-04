@@ -104,8 +104,9 @@ def run() -> None:
     }
     db.add_all(projects.values())
     db.flush()
+    owners = {"Website Revamp": {"karthik"}, "Mobile App": {"sanjay"}, "Internal Tools": {"karthik", "sanjay"}}  # project owners see every task in the project
     for pname, members in {"Website Revamp": ["karthik", "divya", "arjun", "meera"], "Mobile App": ["sanjay", "nisha"], "Internal Tools": ["karthik", "arjun", "sanjay"]}.items():
-        db.add_all(ProjectMember(company_id=cid, project_id=projects[pname].id, user_id=users[m].id) for m in members)
+        db.add_all(ProjectMember(company_id=cid, project_id=projects[pname].id, user_id=users[m].id, is_owner=m in owners[pname]) for m in members)
 
     for title, pname, act, prio, status, eta, who in TASKS:
         due = today + timedelta(days=rnd.randint(-4, 14)) if status != "done" else today - timedelta(days=rnd.randint(1, 12))

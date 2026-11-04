@@ -26,20 +26,33 @@ def effective_user_ids(visible: set[uuid.UUID] | None, user: uuid.UUID | None) -
     return [user]
 
 
-TASK_SCOPE = "(CAST(:uids AS uuid[]) IS NULL OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ANY(CAST(:uids AS uuid[]))))"
+_OWNED = "t.project_id = ANY(CAST(:owned AS uuid[]))"
+# Visible work = (assigned to someone in my scope [and, when filtering on a person outside my scope, in a project I own])
+#                OR (inside a project I own, when no person filter is set)
+TASK_SCOPE = (
+    "(((CAST(:uids AS uuid[]) IS NULL OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ANY(CAST(:uids AS uuid[]))))"
+    f" AND (NOT :owned_only OR {_OWNED})) OR (:widen AND {_OWNED}))"
+)
 TASK_ACTIVE_IN_PERIOD = "t.created_at::date <= :to AND (t.completed_at IS NULL OR t.completed_at::date >= :from)"
 
 
 def dashboard(
     db: Session, company_id: uuid.UUID, me: uuid.UUID, uids: list[uuid.UUID] | None, project: uuid.UUID | None,
-    start: date, end: date, today: date,
+    start: date, end: date, today: date, *, owned: list[uuid.UUID] | None = None, owned_only: bool = False,
+    widen: bool = False, status_uids: list[uuid.UUID] | None | str = "same",
 ) -> dict[str, Any]:
-    key = (company_id, me, tuple(uids) if uids is not None else None, project, start, end, today)
+    """`owned` = projects I own. `widen`: owners also see everything inside them; `owned_only`: a person filter outside
+    my scope is honoured only within my owned projects. Daily-status text is never widened (`status_uids`)."""
+    owned = owned or []
+    s_uids = uids if status_uids == "same" else status_uids
+    key = (company_id, me, tuple(uids) if uids is not None else None, project, start, end, today, tuple(owned), owned_only, widen,
+           tuple(s_uids) if isinstance(s_uids, list) else s_uids)
     hit = _CACHE.get(key)
     now = time.monotonic()
     if hit and hit[0] > now:
         return hit[1]
-    p = {"uids": uids, "project": project, "from": start, "to": end, "today": today}
+    p = {"uids": uids, "project": project, "from": start, "to": end, "today": today,
+         "owned": owned, "owned_only": owned_only, "widen": widen, "status_uids": s_uids}
     proj_t = "(CAST(:project AS uuid) IS NULL OR t.project_id = CAST(:project AS uuid))"
 
     # 1) tasks ------------------------------------------------------------------------------
@@ -74,7 +87,10 @@ def dashboard(
     blockers = task_list("t.is_blocked", "t.updated_at DESC")
 
     # 2) time entries -----------------------------------------------------------------------
-    te_scope = "(CAST(:uids AS uuid[]) IS NULL OR e.user_id = ANY(CAST(:uids AS uuid[])))"
+    te_scope = (
+        "(((CAST(:uids AS uuid[]) IS NULL OR e.user_id = ANY(CAST(:uids AS uuid[]))) AND (NOT :owned_only OR " + _OWNED + "))"
+        " OR (:widen AND " + _OWNED + "))"
+    )
     te_where = f"e.entry_date BETWEEN :from AND :to AND {te_scope} AND {proj_t}"
     hours_by_project = [
         {"project": r.name, "hours": float(r.h)}
@@ -96,9 +112,9 @@ def dashboard(
     ]
 
     # 3) daily status -----------------------------------------------------------------------
-    ds_scope = "(CAST(:uids AS uuid[]) IS NULL OR d.user_id = ANY(CAST(:uids AS uuid[])))"
+    ds_scope = "(CAST(:status_uids AS uuid[]) IS NULL OR d.user_id = ANY(CAST(:status_uids AS uuid[])))"
     expected = db.execute(
-        text("SELECT count(*) FROM users u WHERE u.is_active AND (CAST(:uids AS uuid[]) IS NULL OR u.id = ANY(CAST(:uids AS uuid[])))"), p
+        text("SELECT count(*) FROM users u WHERE u.is_active AND (CAST(:status_uids AS uuid[]) IS NULL OR u.id = ANY(CAST(:status_uids AS uuid[])))"), p
     ).scalar_one()
     submitted = db.execute(
         text(f"SELECT count(*) FROM daily_status d WHERE d.status_date = :today AND {ds_scope}"), p

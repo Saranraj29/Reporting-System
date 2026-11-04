@@ -192,6 +192,35 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await ctx.close()
   }
 
+  // ---------------------------------------------------------------- project owner
+  {
+    // Meera is a plain Team Member: she only sees her own tasks...
+    let { ctx, page } = await login(browser, 'meera')
+    await page.getByRole('link', { name: 'Tasks' }).click()
+    await page.waitForSelector('tbody tr')
+    check(!(await page.locator('tbody').innerText()).includes('Push notification service'), 'member does not see other teams\' tasks')
+    await ctx.close()
+    // ...until an admin makes her an owner of the Mobile App project
+    ;({ ctx, page } = await login(browser, 'asha'))
+    await page.getByRole('link', { name: 'Projects & clients' }).click()
+    await page.getByRole('row', { name: /Mobile App/ }).click()
+    await page.getByLabel('Project owners').click()
+    await page.getByRole('option', { name: 'Meera Pillai' }).click()
+    await page.getByRole('heading', { name: 'Edit project' }).click() // close the dropdown (Escape would close the dialog)
+    await shot(page, '20-project-owners')
+    await page.getByRole('button', { name: 'Save' }).click()
+    await page.getByRole('dialog').waitFor({ state: 'detached' })
+    await ctx.close()
+    ;({ ctx, page } = await login(browser, 'meera'))
+    await page.getByRole('link', { name: 'Tasks' }).click()
+    await page.getByText('Push notification service').waitFor()
+    const body = await page.locator('tbody').innerText()
+    check(body.includes('Offline mode sync engine') && body.includes('Push notification service'), 'project owner sees every task in the owned project')
+    check(!body.includes('Payment gateway sandbox access'), 'project owner does not see tasks of other projects')
+    await shot(page, '21-project-owner-tasks')
+    await ctx.close()
+  }
+
   // ---------------------------------------------------------------- phone
   {
     const { ctx, page } = await login(browser, 'priya', { width: 390, height: 844 })

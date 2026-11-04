@@ -24,6 +24,7 @@ from ..models import (
     User,
 )
 from ..services import jobs
+from ..services.access import owned_project_ids
 from ..services.timeutil import company_today, tzinfo
 
 router = APIRouter(tags=["tasks"])
@@ -33,16 +34,18 @@ PRIORITIES = ("low", "medium", "high", "urgent")
 
 
 # --------------------------------------------------------------------------- helpers
-def _scope_clause(ids: set[uuid.UUID] | None):
+def _scope_clause(ids: set[uuid.UUID] | None, owned: list[uuid.UUID] | None = None):
+    """Tasks I may see: assigned to someone in my scope, or inside a project I own."""
     if ids is None:
         return None
-    return Task.id.in_(select(TaskAssignee.task_id).where(TaskAssignee.user_id.in_(ids)))
+    clause = Task.id.in_(select(TaskAssignee.task_id).where(TaskAssignee.user_id.in_(ids)))
+    return clause | Task.project_id.in_(owned) if owned else clause
 
 
 def _visible_task(ctx: Ctx, task_id: uuid.UUID) -> Task:
     ids = ctx.visible("task.view")
     stmt = select(Task).where(Task.id == task_id)
-    clause = _scope_clause(ids)
+    clause = _scope_clause(ids, owned_project_ids(ctx.db, ctx.me.id))
     if clause is not None:
         stmt = stmt.where(clause)
     task = ctx.db.execute(stmt).scalar_one_or_none()
@@ -171,7 +174,7 @@ def list_tasks(
     ctx: Ctx = Depends(require("task.view")), page: Page = Depends(pagination),
 ):
     stmt = select(Task).order_by(Task.due_date.asc().nulls_last(), Task.created_at.desc())
-    clause = _scope_clause(ctx.visible("task.view"))
+    clause = _scope_clause(ctx.visible("task.view"), owned_project_ids(ctx.db, ctx.me.id))
     if clause is not None:
         stmt = stmt.where(clause)
     if project:
@@ -380,7 +383,8 @@ def list_time_entries(
     )
     ids = ctx.visible("task.view")
     if ids is not None:
-        stmt = stmt.where(TimeEntry.user_id.in_(ids))
+        owned = owned_project_ids(ctx.db, ctx.me.id)
+        stmt = stmt.where(TimeEntry.user_id.in_(ids) | Task.project_id.in_(owned) if owned else TimeEntry.user_id.in_(ids))
     if task:
         stmt = stmt.where(TimeEntry.task_id == task)
     if user:

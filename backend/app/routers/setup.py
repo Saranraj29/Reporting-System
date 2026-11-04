@@ -42,19 +42,22 @@ class ProjectPatch(BaseModel):
     end_date: date | None = None
 
 
-def _project_out(p: Project, client_name: str | None = None, members: list[str] | None = None) -> dict:
+def _project_out(p: Project, client_name: str | None = None, members: list[str] | None = None, owners: list[str] | None = None) -> dict:
     return {
         "id": str(p.id), "name": p.name, "client_id": str(p.client_id) if p.client_id else None,
         "client_name": client_name, "status": p.status,
         "start_date": p.start_date.isoformat() if p.start_date else None,
         "end_date": p.end_date.isoformat() if p.end_date else None,
-        "member_ids": members or [],
+        "member_ids": members or [], "owner_ids": owners or [],
     }
 
 
-def _members(ctx: Ctx, ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
+def _members(ctx: Ctx, ids: list[uuid.UUID], owners_only: bool = False) -> dict[uuid.UUID, list[str]]:
     out: dict[uuid.UUID, list[str]] = {}
-    for pid, uid in ctx.db.execute(select(ProjectMember.project_id, ProjectMember.user_id).where(ProjectMember.project_id.in_(ids))):
+    stmt = select(ProjectMember.project_id, ProjectMember.user_id).where(ProjectMember.project_id.in_(ids))
+    if owners_only:
+        stmt = stmt.where(ProjectMember.is_owner.is_(True))
+    for pid, uid in ctx.db.execute(stmt):
         out.setdefault(pid, []).append(str(uid))
     return out
 
@@ -76,9 +79,10 @@ def list_projects(
         stmt = stmt.where(Project.client_id == client_id)
     total = ctx.db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar_one()
     rows = ctx.db.execute(stmt.limit(page.limit).offset(page.offset)).all()
-    members = _members(ctx, [p.id for p, _ in rows])
+    ids = [p.id for p, _ in rows]
+    members, owners = _members(ctx, ids), _members(ctx, ids, owners_only=True)
     return {
-        "items": [_project_out(p, cn, members.get(p.id)) for p, cn in rows],
+        "items": [_project_out(p, cn, members.get(p.id), owners.get(p.id)) for p, cn in rows],
         "total": total, "page": page.page, "limit": page.limit,
     }
 
@@ -107,31 +111,37 @@ def patch_project(project_id: uuid.UUID, body: ProjectPatch, ctx: Ctx = Depends(
             continue
         setattr(p, k, v)
     ctx.db.commit()
-    return _project_out(p, members=_members(ctx, [p.id]).get(p.id))
+    return _project_out(p, members=_members(ctx, [p.id]).get(p.id), owners=_members(ctx, [p.id], owners_only=True).get(p.id))
 
 
-class MembersIn(BaseModel):
+class ProjectMembersIn(BaseModel):
     user_ids: list[uuid.UUID]
+    owner_ids: list[uuid.UUID] = []  # project owners; they are added as members automatically
 
 
 @router.get("/projects/{project_id}/members")
 def get_project_members(project_id: uuid.UUID, ctx: Ctx = Depends(get_ctx)):
     if not ctx.db.get(Project, project_id):
         raise not_found("Project")
-    return {"user_ids": _members(ctx, [project_id]).get(project_id, [])}
+    return {
+        "user_ids": _members(ctx, [project_id]).get(project_id, []),
+        "owner_ids": _members(ctx, [project_id], owners_only=True).get(project_id, []),
+    }
 
 
 @router.put("/projects/{project_id}/members")
-def set_project_members(project_id: uuid.UUID, body: MembersIn, ctx: Ctx = Depends(require("project.manage"))):
+def set_project_members(project_id: uuid.UUID, body: ProjectMembersIn, ctx: Ctx = Depends(require("project.manage"))):
+    """Replaces the member list. Owners get view access to every task in this project (whoever created or is assigned)."""
     if not ctx.db.get(Project, project_id):
         raise not_found("Project")
-    ids = set(body.user_ids)
+    owners = set(body.owner_ids)
+    ids = set(body.user_ids) | owners
     if ids and ctx.db.execute(select(func.count()).select_from(User).where(User.id.in_(ids))).scalar_one() != len(ids):
         raise bad_request("invalid_user", "One or more users do not exist")
     ctx.db.execute(delete(ProjectMember).where(ProjectMember.project_id == project_id))
-    ctx.db.add_all(ProjectMember(company_id=ctx.company_id, project_id=project_id, user_id=u) for u in ids)
+    ctx.db.add_all(ProjectMember(company_id=ctx.company_id, project_id=project_id, user_id=u, is_owner=u in owners) for u in ids)
     ctx.db.commit()
-    return {"user_ids": [str(u) for u in ids]}
+    return {"user_ids": [str(u) for u in ids], "owner_ids": [str(u) for u in owners]}
 
 
 # --------------------------------------------------------------------------- clients
