@@ -99,7 +99,11 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByRole('link', { name: 'AI reports' }).click()
     await page.getByRole('heading', { name: 'AI reports' }).waitFor()
     await page.getByLabel('What is this report for').fill('Update for the CTO, highlight delays')
-    await page.getByRole('radio', { name: /Their own format/ }).click()
+    await page.getByRole('combobox', { name: 'People' }).click()
+    const who = await page.getByRole('option').allInnerTexts()
+    check(who[0] === 'Everyone' && who.length > 3, `People filter offers Everyone and the team: ${who.slice(0, 4).join(', ')}…`)
+    await page.keyboard.press('Escape') // close the list
+    await page.getByRole('radio', { name: /Own format/ }).click()
     await page.getByLabel('Report format').fill('1. Executive summary\n2. Progress per project\n3. Risks\n4. Next steps')
     await shot(page, '08-ai-report-request')
     await page.getByRole('button', { name: 'Show me the structure' }).click()
@@ -233,9 +237,9 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     check((await navLinks(page)).includes('AI reports'), 'project owner gets the AI reports page')
     await page.getByRole('link', { name: 'AI reports' }).click()
     await page.getByRole('heading', { name: 'AI reports' }).waitFor()
-    await page.getByLabel('Projects').click()
+    await page.getByRole('combobox', { name: 'Projects' }).click()
     const opts = await page.getByRole('option').allInnerTexts()
-    check(opts.length === 1 && opts[0] === 'Mobile App', `owner can only pick the owned project: ${opts.join(', ')}`)
+    check(opts.length === 2 && opts[0] === 'All my projects' && opts[1] === 'Mobile App', `owner can only pick the owned project: ${opts.join(', ')}`)
     await ctx.close()
   }
 

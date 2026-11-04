@@ -30,10 +30,29 @@ const PRESETS: { label: string; range: () => [string, string] }[] = [
 ]
 
 const FORMATS = [
-  { value: 'auto', title: 'Industry standard', text: 'No format needed — the AI builds a clean, well-structured management report.' },
+  { value: 'auto', title: 'Default', text: 'No format needed — the AI builds a clean, well-structured, industry-standard management report.' },
   { value: 'visibility', title: 'Project Visibility Report', text: 'One section per project with goal, status charts, workflow and deliverables, then combined dashboards.' },
-  { value: 'sample', title: 'Their own format', text: 'Paste the sections they asked for (or a sample report). The report follows exactly that structure.' },
+  { value: 'sample', title: 'Own format', text: 'Paste the sections you were asked for (or a sample report). The report follows exactly that structure.' },
 ] as const
+
+type Option = { id: string; name: string }
+const ALL = '__all__'
+
+/** A multi-select whose first choice is "All …": picking it clears the rest, picking anything else drops it, empty falls back to it. */
+function PickMany({ label, allLabel, options, value, onChange }: { label: string; allLabel: string; options: Option[]; value: Option[]; onChange: (v: Option[]) => void }) {
+  const all: Option = { id: ALL, name: allLabel }
+  const shown = value.length ? value : [all]
+  return (
+    <Autocomplete multiple size="small" disableCloseOnSelect sx={{ flex: 1, minWidth: 240 }} options={[all, ...options]} getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id}
+      value={shown} filterSelectedOptions={false}
+      onChange={(_, v) => {
+        const picked = v.filter((o) => o.id !== ALL)
+        const justAll = v.length > 0 && v[v.length - 1].id === ALL && !shown.some((o) => o.id === ALL)
+        onChange(justAll ? [] : picked)
+      }}
+      renderInput={(params) => <TextField {...params} label={label} />} />
+  )
+}
 
 const STATUS_TEXT: Record<AiReportSummary['status'], string> = {
   planning: 'Preparing structure', outline_ready: 'Waiting for your OK', generating: 'Writing report', ready: 'Ready', failed: 'Failed',
@@ -51,14 +70,15 @@ export default function AiReports() {
   const options = useQuery({ queryKey: ['ai-options'], queryFn: () => api.get<AiReportOptions>('/ai-reports/options') })
   const list = useQuery({ queryKey: ['ai-reports'], queryFn: () => api.get<{ items: AiReportSummary[] }>('/ai-reports') })
   const [request, setRequest] = useState('')
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
+  const [projects, setProjects] = useState<Option[]>([])
+  const [people, setPeople] = useState<Option[]>([])
   const [range, setRange] = useState<[string, string]>(() => PRESETS[0].range())
   const [format, setFormat] = useState<'auto' | 'visibility' | 'sample'>('auto')
   const [sample, setSample] = useState('')
   const file = useRef<HTMLInputElement>(null)
   const create = useMutation({
     mutationFn: () => api.post<{ id: string }>('/ai-reports', {
-      request, project_ids: projects.map((p) => p.id), period_start: range[0], period_end: range[1], format_mode: format, format_sample: format === 'sample' ? sample : '',
+      request, project_ids: projects.map((p) => p.id), person_ids: people.map((p) => p.id), period_start: range[0], period_end: range[1], format_mode: format, format_sample: format === 'sample' ? sample : '',
     }),
     onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['ai-reports'] }); nav(`/ai-reports/${r.id}`) },
   })
@@ -79,9 +99,9 @@ export default function AiReports() {
           </Box>
           <Box>
             <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>2 · Projects and period</Typography>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-              <Autocomplete multiple size="small" sx={{ flex: 1, minWidth: 260 }} options={options.data?.projects ?? []} getOptionLabel={(p) => p.name} isOptionEqualToValue={(a, b) => a.id === b.id}
-                value={projects} onChange={(_, v) => setProjects(v)} renderInput={(params) => <TextField {...params} label="Projects" placeholder={projects.length ? '' : options.data?.all_projects === false ? 'All my projects' : 'All projects'} />} />
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} flexWrap="wrap" useFlexGap>
+              <PickMany label="Projects" allLabel={options.data?.all_projects === false ? 'All my projects' : 'All projects'} options={options.data?.projects ?? []} value={projects} onChange={setProjects} />
+              <PickMany label="People" allLabel="Everyone" options={options.data?.people ?? []} value={people} onChange={setPeople} />
               <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={range[0]} onChange={(e) => setRange([e.target.value, range[1]])} />
               <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={range[1]} onChange={(e) => setRange([range[0], e.target.value])} />
             </Stack>
@@ -165,7 +185,7 @@ function StructurePreview({ r, onApprove, approving }: { r: AiReportDetail; onAp
     <Paper sx={{ p: 3 }}>
       <Typography variant="h6" sx={{ fontWeight: 700 }}>Here is how your report will look</Typography>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        “{o.title}” · {r.project_names.join(', ') || 'no projects'} · {fmtDate(r.period_start)} – {fmtDate(r.period_end)}. Nothing is written yet — check the sections and say OK.
+        “{o.title}” · {r.project_names.join(', ') || 'no projects'}{r.people_names.length ? ` · work by ${r.people_names.join(', ')}` : ''} · {fmtDate(r.period_start)} – {fmtDate(r.period_end)}. Nothing is written yet — check the sections and say OK.
       </Typography>
       {o.notes && <Alert severity="info" icon={false} sx={{ mb: 2 }}>{o.notes}</Alert>}
       <Box component="ol" aria-label="Report structure" sx={{ m: 0, p: 0, listStyle: 'none' }}>

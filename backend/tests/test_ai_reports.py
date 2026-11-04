@@ -274,3 +274,22 @@ def test_plain_outline_per_project_and_lists(work):
     md = work.admin.get(f"/ai-reports/{rep['id']}/markdown").text
     assert "Progress — Apollo" in md and "Progress — Hermes" in md
     assert "Needs attention:\n\n- " in md  # a list after a paragraph is separated so it renders as a list
+
+
+def test_person_filter(work):
+    opts = work.admin.get("/ai-reports/options").json()
+    assert {"Mia Member", "Max Member"} <= {p["name"] for p in opts["people"]}
+    rep = create(work.admin, work, person_ids=[work.m2.user_id])
+    assert rep["people_names"] == ["Max Member"]
+    work.admin.post(f"/ai-reports/{rep['id']}/approve")
+    drain()
+    md = work.admin.get(f"/ai-reports/{rep['id']}/markdown").text
+    assert "work by Max Member" in md and "Ship login" not in md
+    assert work.admin.post("/ai-reports", {**window(work), "person_ids": ["00000000-0000-0000-0000-000000000000"]}).json()["code"] == "invalid_person"
+
+
+def test_owner_person_choices_limited_to_their_projects(work):
+    make_owner(work, work.m1)  # Apollo; Mia/Max/Olive have Apollo tasks but only members count
+    opts = work.m1.get("/ai-reports/options").json()
+    assert all(p["name"] != "Ada Admin" for p in opts["people"])
+    assert work.m1.post("/ai-reports", {**window(work), "person_ids": [work.admin.user_id]}).json()["code"] == "invalid_person"

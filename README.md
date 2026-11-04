@@ -131,8 +131,8 @@ partial-failure retry, and schedule timing per company timezone.
   GitLab/VS Code), PDF, Word or Excel; the on-screen/PDF version draws the charts as SVG. Every other report can be downloaded as `.md` too.
   A real sample: [`docs/examples/project-visibility-report.md`](docs/examples/project-visibility-report.md) (figures-only fallback text, no AI key).
 * **AI reports** (`/ai-reports`, for admins, the CTO/managers with `report.ai.draft`, and project owners for *their* projects only) – three simple steps:
-  1. *Ask*: optional purpose ("update for the CTO, highlight delays"), projects, period, and a format: **Industry standard** (no format given — the AI
-     proposes a clean management report), **Project Visibility Report**, or **Their own format** (paste the sections the employer asked for, a typed
+  1. *Ask*: optional purpose ("update for the CTO, highlight delays"), projects (or *All projects*), people (or *Everyone*), period, and a format: **Default** (no format given — the AI
+     proposes a clean industry-standard management report), **Project Visibility Report**, or **Own format** (paste the sections the employer asked for, a typed
      list like "1. Summary 2. Risks …", a full sample report, or upload a .md/.txt).
   2. *Structure preview*: a numbered list of sections with what each shows (table / chart / flow / written text) and which repeat per project.
      "Change something" re-plans it from a note; "Start over" discards it. **Nothing is written before the explicit OK.**

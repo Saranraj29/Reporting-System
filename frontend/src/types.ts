@@ -239,12 +239,14 @@ export interface AiReportSummary {
 export interface AiReportDetail extends AiReportSummary {
   created_by: string | null
   project_names: string[]
+  people_names: string[]
   no_activity: string[]
   outline: { title: string; notes: string; sections: AiOutlineSection[]; per_project_count: number } | null
   missing_text: boolean
 }
 export interface AiReportOptions {
   projects: { id: string; name: string }[]
+  people: { id: string; name: string }[]
   all_projects: boolean
   ai_enabled: boolean
   max_sample_chars: number

@@ -304,6 +304,7 @@ class AiReport(Base, Stamps):
     title: Mapped[str] = mapped_column(Text, default="")
     request: Mapped[str] = mapped_column(Text, default="")
     project_ids: Mapped[list[str] | None] = mapped_column(JSONB)
+    person_ids: Mapped[list[str] | None] = mapped_column(JSONB)
     period_start: Mapped[date] = mapped_column(Date)
     period_end: Mapped[date] = mapped_column(Date)
     format_mode: Mapped[str] = mapped_column(Text, default="auto")

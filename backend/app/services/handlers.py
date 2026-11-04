@@ -317,7 +317,7 @@ def ai_report_plan(db: Session, job: Job) -> None:
         return
     company = _company(db, job)
     if row.facts is None:
-        row.facts = build_facts(db, company.name, row.project_ids, row.period_start, row.period_end, company_today(company.timezone))
+        row.facts = build_facts(db, company.name, row.project_ids, row.period_start, row.period_end, company_today(company.timezone), row.person_ids)
     previous = row.outline if row.note else None
     try:
         outline, engine = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous)

@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from ..deps import Ctx, get_ctx
 from ..errors import ApiError, bad_request, conflict, forbidden, not_found
-from ..models import AiReport, Project, User
+from ..models import AiReport, Project, ProjectMember, User
 from ..reports.render import markdown_to_html
 from ..security import make_file_token
 from ..services import ai, jobs
@@ -60,6 +60,7 @@ def _out(ctx: Ctx, row: AiReport, detail: bool = False) -> dict:
     if detail:
         out["created_by"] = ctx.db.execute(select(User.name).where(User.id == row.created_by)).scalar_one_or_none() if row.created_by else None
         out["project_names"] = [p["name"] for p in (row.facts or {}).get("projects", [])]
+        out["people_names"] = (row.facts or {}).get("people_filter", [])
         out["no_activity"] = (row.facts or {}).get("no_activity", [])
         out["outline"] = None if row.outline is None else {
             "title": row.outline["title"], "notes": row.outline.get("notes", ""), "sections": describe(row.outline),
@@ -76,8 +77,13 @@ def options(ctx: Ctx = Depends(ai_ctx)):
     stmt = select(Project.id, Project.name).where(Project.status != "archived").order_by(Project.name)
     if not unrestricted:
         stmt = stmt.where(Project.id.in_([uuid.UUID(i) for i in ids]))
+    people = select(User.id, User.name).where(User.is_active.is_(True)).order_by(User.name)
+    if not unrestricted:  # owners may only pick people working in the projects they own
+        members = select(ProjectMember.user_id).where(ProjectMember.project_id.in_([uuid.UUID(i) for i in ids]))
+        people = people.where(User.id.in_(members))
     return {
         "projects": [{"id": str(i), "name": n} for i, n in ctx.db.execute(stmt)],
+        "people": [{"id": str(i), "name": n} for i, n in ctx.db.execute(people)],
         "all_projects": unrestricted, "ai_enabled": ai.resolve_config() is not None, "max_sample_chars": SAMPLE_LIMIT,
     }
 
@@ -85,6 +91,7 @@ def options(ctx: Ctx = Depends(ai_ctx)):
 class CreateIn(BaseModel):
     request: str = Field(default="", max_length=2000)
     project_ids: list[uuid.UUID] | None = None  # None / empty = all projects the user may report on
+    person_ids: list[uuid.UUID] | None = None  # None / empty = everyone
     period_start: date
     period_end: date
     format_mode: str = Field(default="auto", pattern="^(auto|visibility|sample)$")
@@ -106,8 +113,15 @@ def create(body: CreateIn, ctx: Ctx = Depends(ai_ctx)):
         if not unrestricted and not set(wanted) <= set(allowed):
             raise forbidden("You can only report on projects you own")
     project_ids: list[str] | None = wanted or (None if unrestricted else allowed)
+    people = [str(p) for p in (body.person_ids or [])]
+    if people:
+        stmt = select(User.id).where(User.id.in_([uuid.UUID(p) for p in people]), User.is_active.is_(True))
+        if not unrestricted:
+            stmt = stmt.where(User.id.in_(select(ProjectMember.user_id).where(ProjectMember.project_id.in_([uuid.UUID(i) for i in allowed]))))
+        if {str(i) for i in ctx.db.execute(stmt).scalars()} != set(people):
+            raise bad_request("invalid_person", "One or more people cannot be included in this report")
     row = AiReport(
-        company_id=ctx.company_id, created_by=ctx.me.id, request=body.request.strip(), project_ids=project_ids,
+        company_id=ctx.company_id, created_by=ctx.me.id, request=body.request.strip(), project_ids=project_ids, person_ids=people or None,
         period_start=body.period_start, period_end=body.period_end, format_mode=body.format_mode,
         format_sample=body.format_sample.strip() if body.format_mode == "sample" else "", status="planning",
     )

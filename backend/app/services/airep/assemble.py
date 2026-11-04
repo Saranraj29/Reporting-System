@@ -68,7 +68,8 @@ def assemble(outline: dict[str, Any], facts: dict[str, Any], narrative: dict[str
 
     md: list[str] = []
     if level == 2:
-        md += [f"# {esc(outline['title'])}", "", f"_{esc(company)} · {period} · {len(projects)} project{'s' if len(projects) != 1 else ''}_", ""]
+        md += [f"# {esc(outline['title'])}", "", f"_{esc(company)} · {period} · {len(projects)} project{'s' if len(projects) != 1 else ''}"
+               f"{' · work by ' + esc(', '.join(facts['people_filter'])) if facts.get('people_filter') else ''}_", ""]
     blocks: list[list[str]] = [render(s, None) for s in front]
     if group:
         for p in projects:
