@@ -81,7 +81,8 @@ figures only). Adding another provider = one function in [`services/ai.py`](back
 ```bash
 cd backend  && pytest          # 125 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
 cd frontend && npm test        # 15 unit tests;  npm run typecheck;  npm run build
-cd e2e && node ui.cjs          # browser tour against the running stack (+ screenshots)
+cd e2e && node ui.cjs          # browser tour against the running stack (+ screenshots); needs a fresh seed and
+                               # AUTH_RATE_LIMIT_PER_MIN=0 on the API (the tour logs in ~13 times from one IP)
 ```
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push: **backend** (ruff + pytest on a
 PostgreSQL 16 service, including PDF rendering), **frontend** (typecheck, vitest, build), **e2e** (boots API, worker

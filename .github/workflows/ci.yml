@@ -63,6 +63,7 @@ jobs:
       JWT_SECRET: ci-secret-ci-secret-ci-secret-ci-secret
       PLATFORM_KEY: ci-platform-key
       STORAGE_DIR: /tmp/rs-files
+      AUTH_RATE_LIMIT_PER_MIN: "0"  # the browser tour logs in ~13 times from one IP; the 10/min login limit would return 429
       PG_URL: postgresql://rs_owner:rs_owner@localhost:5432/reporting
       SHOT_DIR: ${{ github.workspace }}/e2e-screenshots
     steps:

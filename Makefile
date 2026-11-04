@@ -24,5 +24,5 @@ backend-test:  ## needs PostgreSQL on localhost:5432 (user postgres/postgres), s
 frontend-test:
 	cd frontend && npm test && npm run typecheck
 
-e2e:           ## browser tour against http://localhost:8080 (after `make up seed`)
+e2e:           ## browser tour against http://localhost:8080 (start the stack with AUTH_RATE_LIMIT_PER_MIN=0 make up, then make seed)
 	cd e2e && npm install && npx playwright install chromium && BASE_URL=http://localhost:8080 PG_URL=postgresql://rs_owner:rs_owner@localhost:5433/reporting node ui.cjs

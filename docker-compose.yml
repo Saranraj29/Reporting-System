@@ -24,6 +24,7 @@ x-api-env: &api-env
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   EMAIL_BACKEND: ${EMAIL_BACKEND:-console}
   STORAGE_DIR: /data/files
+  AUTH_RATE_LIMIT_PER_MIN: ${AUTH_RATE_LIMIT_PER_MIN:-10}  # 0 disables (needed to run the E2E tour against this stack)
 
 services:
   db:
