@@ -24,7 +24,7 @@ PERMISSIONS: dict[str, str] = {
     "report.visibility.view.team": "Project visibility report (team)",
     "report.visibility.view.all": "Project visibility report (company)",
     "report.template.manage": "Manage report templates",
-    "report.ai.draft": "Generate AI-drafted client reports",
+    "report.ai.draft": "Create AI reports (any project)",
     "report.approve": "Approve client reports",
     "report.share.client": "Share approved reports with clients",
     "user.manage": "Manage users",
@@ -61,7 +61,7 @@ SEEDED_ROLES: dict[str, tuple[str, list[str]]] = {
         "Users, roles, projects, settings, Slack link (no performance reports unless also given that key)",
         [
             *_ADMIN, "task.view.all", "task.edit.all", "status.view.all", "dashboard.view.all",
-            "report.weekly.view.all", "report.monthly.view.all", "report.visibility.view.all", "report.template.manage",
+            "report.weekly.view.all", "report.monthly.view.all", "report.visibility.view.all", "report.template.manage", "report.ai.draft",
         ],
     ),
 }

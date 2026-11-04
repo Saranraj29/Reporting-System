@@ -12,7 +12,7 @@ from ..models import Permission, Role, RolePermission, Team, TeamMember, User, U
 from ..perms import PERMISSIONS
 from ..security import hash_password, make_email_token
 from ..services import mail
-from ..services.access import clear_permission_cache
+from ..services.access import clear_permission_cache, owned_project_ids
 
 router = APIRouter(tags=["people"])
 
@@ -30,6 +30,7 @@ def me(ctx: Ctx = Depends(get_ctx)):
         "company": {"id": str(ctx.company.id), "name": ctx.company.name, "timezone": ctx.company.timezone},
         "roles": [{"id": str(r.id), "name": r.name} for r in roles],
         "permissions": sorted(ctx.perms),
+        "owns_projects": bool(owned_project_ids(ctx.db, ctx.me.id)),  # project owners can request AI reports for their projects
     }
 
 

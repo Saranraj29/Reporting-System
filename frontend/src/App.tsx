@@ -7,7 +7,7 @@ import AdminSettings from './pages/AdminSettings'
 import AdminUsers from './pages/AdminUsers'
 import { ForgotPassword, Login, Register, ResetPassword, VerifyEmail } from './pages/Auth'
 import CheckIns from './pages/CheckIns'
-import ClientReports, { RunReview } from './pages/ClientReports'
+import AiReports, { AiReportPage } from './pages/AiReports'
 import Dashboard from './pages/Dashboard'
 import MyDay from './pages/MyDay'
 import Reports, { ExportRun } from './pages/Reports'
@@ -52,8 +52,9 @@ export default function App() {
         <Route path="/check-ins" element={<CheckIns />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/reports/runs/:id" element={<ExportRun />} />
-        <Route path="/client-reports" element={<ClientReports />} />
-        <Route path="/client-reports/runs/:id" element={<RunReview />} />
+        <Route path="/ai-reports" element={<AiReports />} />
+        <Route path="/ai-reports/:id" element={<AiReportPage />} />
+        <Route path="/client-reports/*" element={<Navigate to="/ai-reports" replace />} />
         <Route path="/admin/users" element={<AdminUsers />} />
         <Route path="/admin/projects" element={<AdminProjects />} />
         <Route path="/admin/settings" element={<AdminSettings />} />

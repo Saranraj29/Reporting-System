@@ -64,7 +64,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.waitForSelector('svg.recharts-surface')
     check(await page.getByRole('heading', { name: 'Dashboard' }).isVisible(), 'manager lands on the dashboard')
     const links = await navLinks(page)
-    check(['Dashboard', 'Tasks', 'Reports', 'Client reports'].every((l) => links.includes(l)), `manager nav: ${links.join(', ')}`)
+    check(['Dashboard', 'Tasks', 'Reports', 'AI reports'].every((l) => links.includes(l)), `manager nav: ${links.join(', ')}`)
     check(!links.includes('Settings'), 'manager has no admin links')
     await shot(page, '02-dashboard')
 
@@ -95,44 +95,52 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.waitForTimeout(800)
     await shot(page, '07-report-performance')
 
-    // --- client report: generate -> review -> approve -> share
-    await page.getByRole('link', { name: 'Client reports' }).click()
-    await page.getByText('Contoso weekly client update').waitFor()
-    await shot(page, '08-client-templates')
-    await page.locator('.MuiPaper-root', { hasText: 'Contoso weekly client update' }).getByRole('button', { name: 'Generate' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click() // default: last complete week, whole team
-    await page.getByText('Figures the draft is built from').waitFor({ timeout: 60000 })
-    check(await page.getByLabel('Summary').isVisible(), 'draft appears after the worker finishes')
-    await page.getByLabel('Summary').fill('A steady week for Contoso: the redesigned landing page and responsive navigation shipped, and checkout testing is under way.')
-    await shot(page, '09-report-review')
-    await page.getByRole('button', { name: 'Approve' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Approve' }).click()
-    await page.getByText('Final files & sharing').waitFor()
-    await page.getByRole('link', { name: /PDF$/ }).or(page.getByRole('button', { name: 'PDF' })).first().waitFor({ timeout: 60000 })
-    await page.getByLabel(/Hannah Cole/).check()
-    await page.getByRole('button', { name: 'Share with client' }).click()
-    await page.getByText('sending…').or(page.getByText('Revoke')).first().waitFor()
-    await page.waitForTimeout(8000) // worker emails + marks the run as sent
-    await shot(page, '10-report-shared')
-    await ctx.close()
-  }
+    // --- AI report in the employer's own format: request -> structure preview -> change -> OK -> report
+    await page.getByRole('link', { name: 'AI reports' }).click()
+    await page.getByRole('heading', { name: 'AI reports' }).waitFor()
+    await page.getByLabel('What is this report for').fill('Update for the CTO, highlight delays')
+    await page.getByRole('radio', { name: /Their own format/ }).click()
+    await page.getByLabel('Report format').fill('1. Executive summary\n2. Progress per project\n3. Risks\n4. Next steps')
+    await shot(page, '08-ai-report-request')
+    await page.getByRole('button', { name: 'Show me the structure' }).click()
+    await page.getByText('Here is how your report will look').waitFor({ timeout: 60000 })
+    const rows = await page.getByRole('list', { name: 'Report structure' }).getByRole('listitem').allInnerTexts()
+    check(rows.length === 4 && /Executive summary/.test(rows[0]) && /Next steps/.test(rows[3]), `structure preview follows the requested sections: ${rows.map((r) => r.split('\n')[0]).join(' | ')}`)
+    check((await page.getByRole('button', { name: /^Looks good/ }).count()) === 1, 'preview offers an explicit OK before anything is written')
+    await shot(page, '09-ai-report-structure')
+    await page.getByRole('button', { name: 'Change something' }).click()
+    await page.getByLabel('What should change').fill('Add a budget section at the end')
+    await page.getByRole('button', { name: 'Update the structure' }).click()
+    await page.getByText('Preparing the structure').waitFor()
+    await page.getByText('Here is how your report will look').waitFor({ timeout: 60000 })
+    await page.getByRole('button', { name: /^Looks good/ }).click()
+    await page.getByText('Your report is ready').waitFor({ timeout: 90000 })
+    const doc = await page.frameLocator('iframe').locator('body').innerText()
+    check(doc.includes('Executive summary') && doc.includes('Mobile App') && doc.includes('Website Revamp'), 'finished report has the requested sections and every project')
+    await shot(page, '10-ai-report-ready')
+    const href = await page.getByRole('link', { name: /Markdown/ }).getAttribute('href')
+    const md = await (await page.request.get(new URL(href, BASE).toString())).text()
+    check(md.startsWith('# ') && md.includes('Mobile App'), 'Markdown download works')
+    check((await page.getByRole('link', { name: /Word/ }).count()) === 1 && (await page.getByRole('link', { name: /Excel/ }).count()) === 1, 'Word and Excel downloads are offered')
 
-  // ---------------------------------------------------------------- public shared page (no login)
-  {
-    const token = execSync(`psql "${PG}" -tAc "select token from report_shares order by created_at desc limit 1"`).toString().trim()
-    check(token.length >= 43, 'share token is a long random string')
-    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 1.5 })
-    const page = await ctx.newPage()
-    await page.goto(`${BASE}/shared/${token}`)
-    await page.waitForSelector('iframe')
-    check(await page.getByRole('link', { name: 'Download PDF' }).isVisible(), 'client page offers the PDF without logging in')
-    const html = await page.frameLocator('iframe').locator('body').innerText()
-    check(html.includes('A steady week for Contoso'), 'client page shows the approved text')
-    check(!/Divya|Arjun|Meera|Karthik/.test(html), 'client page contains no internal names')
-    await shot(page, '11-shared-report')
-    await page.goto(`${BASE}/shared/not-a-token`)
-    await page.getByText(/no longer available/).waitFor()
-    check(true, 'invalid share link shows a friendly message')
+    // --- no format given: industry-standard structure; Project Visibility Report layout
+    await page.getByRole('link', { name: 'AI reports' }).click()
+    await page.getByRole('button', { name: 'Show me the structure' }).click()
+    await page.getByText('Here is how your report will look').waitFor({ timeout: 60000 })
+    const std = await page.getByRole('list', { name: 'Report structure' }).getByRole('listitem').allInnerTexts()
+    check(std.length >= 8 && /Executive summary/.test(std[0]), 'without a format the AI proposes an industry-standard structure')
+    await page.getByRole('button', { name: 'Start over' }).click()
+    await page.getByRole('heading', { name: 'AI reports' }).waitFor()
+    await page.getByRole('radio', { name: /Project Visibility Report/ }).click()
+    await page.getByRole('button', { name: 'Show me the structure' }).click()
+    await page.getByText('Here is how your report will look').waitFor({ timeout: 60000 })
+    check(/Sprint Goal/.test(await page.getByRole('list', { name: 'Report structure' }).innerText()), 'visibility format gives the Project Visibility layout')
+    await page.getByRole('button', { name: /^Looks good/ }).click()
+    await page.getByText('Your report is ready').waitFor({ timeout: 90000 })
+    const vtext = await page.frameLocator('iframe').locator('body').innerText()
+    check(vtext.includes('Sprint Goal') && vtext.includes('Combined Sprint Health Dashboard'), 'visibility AI report renders in the agreed layout')
+    check((await page.frameLocator('iframe').locator('svg').count()) >= 3, 'charts are drawn (SVG), not mermaid source')
+    await shot(page, '11-ai-report-visibility')
     await ctx.close()
   }
 
@@ -140,7 +148,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
   {
     const { ctx, page } = await login(browser, 'divya')
     const links = await navLinks(page)
-    check(!links.includes('Reports') && !links.includes('Client reports'), `member nav hides reports: ${links.join(', ')}`)
+    check(!links.includes('Reports') && !links.includes('AI reports'), `member nav hides reports: ${links.join(', ')}`)
     check(!links.some((l) => /Users|Settings|Projects/.test(l)), 'member sees no admin links')
     await page.waitForSelector('svg.recharts-surface')
     await shot(page, '12-member-dashboard')
@@ -168,7 +176,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
   {
     const { ctx, page } = await login(browser, 'karthik')
     const links = await navLinks(page)
-    check(links.includes('Reports') && !links.includes('Client reports'), `lead nav: ${links.join(', ')}`)
+    check(links.includes('Reports') && links.includes('AI reports'), `lead (a project owner) nav: ${links.join(', ')}`)
     await page.getByRole('link', { name: 'Reports', exact: true }).click()
     await page.waitForSelector('iframe')
     check((await page.getByRole('tab').count()) === 4, 'lead sees weekly, monthly, performance and visibility (team scope)')
@@ -221,6 +229,13 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     check(body.includes('Offline mode sync engine') && body.includes('Push notification service'), 'project owner sees every task in the owned project')
     check(!body.includes('Payment gateway sandbox access'), 'project owner does not see tasks of other projects')
     await shot(page, '21-project-owner-tasks')
+    // owners can also ask for AI reports, but only about their own projects
+    check((await navLinks(page)).includes('AI reports'), 'project owner gets the AI reports page')
+    await page.getByRole('link', { name: 'AI reports' }).click()
+    await page.getByRole('heading', { name: 'AI reports' }).waitFor()
+    await page.getByLabel('Projects').click()
+    const opts = await page.getByRole('option').allInnerTexts()
+    check(opts.length === 1 && opts[0] === 'Mobile App', `owner can only pick the owned project: ${opts.join(', ')}`)
     await ctx.close()
   }
 
@@ -276,7 +291,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByRole('option', { name: 'All' }).click()
     check((await page.locator('.MuiSelect-select').filter({ hasText: 'All' }).count()) >= 1, 'tasks status filter shows "All"')
 
-    // 4) person filter on Reports and Client reports
+    // 4) person filter on Reports
     await page.getByRole('link', { name: 'Reports', exact: true }).click()
     await page.waitForSelector('iframe')
     await page.getByRole('combobox', { name: /^Person/ }).click()
@@ -285,14 +300,6 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     const rep = await page.frameLocator('iframe').locator('body').innerText()
     check(rep.includes('Divya Iyer') && !rep.includes('Arjun Das'), 'Reports person filter narrows the report to one person')
     await shot(page, '24-report-person-filter')
-    await page.getByRole('link', { name: 'Client reports' }).click()
-    await page.getByRole('button', { name: 'Generate' }).first().click()
-    await page.getByLabel('Only work by').click()
-    await page.getByRole('option', { name: 'Divya Iyer' }).click()
-    await shot(page, '25-client-report-person-filter')
-    await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click()
-    await page.getByText('filtered to one person').waitFor({ timeout: 60000 })
-    check(true, 'client report can be generated for one person, name not written into the report')
     await ctx.close()
   }
 
@@ -383,32 +390,6 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     const md = await (await page.request.get(await link.getAttribute('href').then((h) => new URL(h, BASE).toString()))).text()
     check(md.includes('# 📊 Project Visibility Report —') && md.includes('```mermaid') && md.includes('| 🎯 Planned Tasks | ✅ Completed |'), 'the .md export contains the visibility layout with mermaid charts')
 
-    // AI-assisted client version: generate -> review -> download .md
-    await page.getByRole('link', { name: 'Client reports' }).click()
-    await page.getByText('Contoso project visibility report').waitFor()
-    await page.locator('.MuiPaper-root', { hasText: 'Contoso project visibility report' }).getByRole('button', { name: 'Generate' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click()
-    await page.getByLabel(/^Sprint goal — /).first().waitFor({ timeout: 60000 })
-    check(true, 'visibility drafts get one Sprint goal / Workflow / Key achievement set per project')
-    await shot(page, '30-visibility-review')
-    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download .md' }).click()])
-    const body = require('fs').readFileSync(await dl.path(), 'utf8')
-    check(dl.suggestedFilename().endsWith('.md') && body.includes('> **Sprint Goal:**') && !body.includes('| **Owner**'), 'draft downloads as Markdown without internal names')
-    await ctx.close()
-  }
-
-  // ---------------------------------------------------------------- internal reports need no approval
-  {
-    const { ctx, page } = await login(browser, 'priya')
-    await page.getByRole('link', { name: 'Client reports' }).click()
-    await page.getByText('Leadership visibility report (all projects)').waitFor()
-    await page.locator('.MuiPaper-root', { hasText: 'Leadership visibility report (all projects)' }).getByRole('button', { name: 'Generate' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Generate' }).click()
-    await page.getByText('Internal reports do not need approval or sharing').waitFor({ timeout: 60000 })
-    check((await page.getByRole('button', { name: 'Approve' }).count()) === 0, 'internal report pages offer no Approve button')
-    await page.getByRole('link', { name: 'Markdown' }).waitFor({ timeout: 60000 }) // flips to ready by itself, no manual refresh
-    check(true, 'an internal report becomes ready on its own and offers its downloads')
-    await shot(page, '31-internal-report-ready')
     await ctx.close()
   }
 

@@ -1,7 +1,7 @@
 # Project Transparency Platform
 
-Tasks, time, daily status, dashboards and client-ready reports in one multi-tenant web app — built from
-*Project Transparency Platform – System Design v1*. **The AI drafts, a person approves.**
+Tasks, time, daily status, dashboards and AI-written project reports in one multi-tenant web app — built from
+*Project Transparency Platform – System Design v1*. **You see the report's structure first; it is written only after you say OK.**
 
 Three deployables, one codebase, one database:
 
@@ -17,10 +17,10 @@ Three deployables, one codebase, one database:
 | | |
 |---|---|
 | ![Dashboard](docs/screenshots/02-dashboard.png) **Dashboard** | ![Tasks](docs/screenshots/03-tasks.png) **Tasks** |
-| ![My day](docs/screenshots/13-my-day.png) **My day** — timer, time log, daily status | ![Report review](docs/screenshots/09-report-review.png) **AI-drafted client report review** |
-| ![Shared page](docs/screenshots/11-shared-report.png) **Public client page** (no login, expires) | ![Roles](docs/screenshots/16-admin-roles.png) **Roles & permissions** (data, not code) |
+| ![My day](docs/screenshots/13-my-day.png) **My day** — timer, time log, daily status | ![Structure preview](docs/screenshots/09-ai-report-structure.png) **AI report — structure preview, then OK** |
+| ![AI report](docs/screenshots/11-ai-report-visibility.png) **Finished AI report** (PDF / Word / Excel / Markdown) | ![Roles](docs/screenshots/16-admin-roles.png) **Roles & permissions** (data, not code) |
 
-All 30 screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
+All screens: [`docs/screenshots`](docs/screenshots). They are produced by the E2E tour (`e2e/ui.cjs`).
 
 ## Run it
 
@@ -90,7 +90,7 @@ figures only). Adding another provider = one function in [`services/ai.py`](back
 ## Tests and CI
 
 ```bash
-cd backend  && pytest          # 166 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
+cd backend  && pytest          # ~180 tests, need PostgreSQL (TEST_PG_ADMIN_DSN, default postgres:postgres@localhost)
 cd frontend && npm test        # 15 unit tests;  npm run typecheck;  npm run build
 cd e2e && node ui.cjs          # browser tour against the running stack (+ screenshots); needs a fresh seed and
                                # AUTH_RATE_LIMIT_PER_MIN=0 on the API (the tour logs in ~13 times from one IP)
@@ -103,7 +103,8 @@ What the backend tests prove: tenant isolation *in the database* (a query withou
 cross-tenant writes are rejected), permission scopes (own / team / all) on tasks, reports, dashboard and status,
 registration rules (domain join / create / invite / public-domain block), password reset single use, refresh-token
 revocation, custom task fields, the timer (one running timer per user), derived hours, report figures and exports
-(xlsx/docx/pdf), the client-report workflow (draft → edit → redraft → approve → share → public page, expiry, revoke),
+(xlsx/docx/pdf), the AI-report flow (request → structure preview → change → approve → files; owners limited to their projects; built-in fallback without an AI key),
+the older client-template workflow (draft → edit → redraft → approve → share → public page; API only, no longer in the UI),
 the AI privacy boundary (prompt contains only aggregated client figures), job retries (3 attempts then failed), Slack/email
 partial-failure retry, and schedule timing per company timezone.
 
@@ -129,6 +130,18 @@ partial-failure retry, and schedule timing per company timezone.
   stages, key achievement) from figures without names, a person reviews/edits them, then approves. Download as **.md** (mermaid charts for GitHub/
   GitLab/VS Code), PDF, Word or Excel; the on-screen/PDF version draws the charts as SVG. Every other report can be downloaded as `.md` too.
   A real sample: [`docs/examples/project-visibility-report.md`](docs/examples/project-visibility-report.md) (figures-only fallback text, no AI key).
+* **AI reports** (`/ai-reports`, for admins, the CTO/managers with `report.ai.draft`, and project owners for *their* projects only) – three simple steps:
+  1. *Ask*: optional purpose ("update for the CTO, highlight delays"), projects, period, and a format: **Industry standard** (no format given — the AI
+     proposes a clean management report), **Project Visibility Report**, or **Their own format** (paste the sections the employer asked for, a typed
+     list like "1. Summary 2. Risks …", a full sample report, or upload a .md/.txt).
+  2. *Structure preview*: a numbered list of sections with what each shows (table / chart / flow / written text) and which repeat per project.
+     "Change something" re-plans it from a note; "Start over" discards it. **Nothing is written before the explicit OK.**
+  3. *Report*: preview on screen plus PDF, Word, Excel and Markdown downloads; "Rewrite the text" keeps the structure and changes only the wording.
+  How it is built ([`services/airep`](backend/app/services/airep)): **numbers, tables and charts come from code** (a catalog of 17 blocks computed from the
+  project data); the AI only plans the outline (as JSON, validated against the catalog) and writes the text parts. People are replaced by
+  codes before anything reaches the model and restored afterwards. Without an AI key, or if the provider fails on the last retry, built-in outlines and
+  wording are used, so a report can always be produced. Limits: the format is reproduced *structurally* — unusual elements of a sample become written
+  sections, not pixel-exact copies. Old client-share/approve endpoints remain in the API but are not used by the UI.
 * **Project owners** – a project can have owners (Admin → Projects & clients). An owner sees every task, comment, time entry and
   dashboard figure inside that project, whoever created it or is assigned to it (view only; editing still follows `task.edit.*`,
   and daily-status text is never widened). Company Admin, Manager and CEO/CTO hold `…view.all`, so they see every project.

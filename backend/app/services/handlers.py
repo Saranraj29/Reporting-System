@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import (
+    AiReport,
     Company,
     DailyStatus,
     Job,
@@ -299,3 +300,66 @@ def cron_template(db: Session, job: Job) -> None:
     jobs.enqueue(db, "report.draft", company.id, {"run_id": str(run.id)})
 
 
+
+
+# ------------------------------------------------------------------------------ AI reports (request -> structure -> report)
+def _ai_final(job: Job) -> bool:
+    return job.attempts >= job.max_attempts
+
+
+@handler("ai_report.plan")
+def ai_report_plan(db: Session, job: Job) -> None:
+    from .airep.facts import build_facts
+    from .airep.writer import plan_outline
+
+    row = db.get(AiReport, uuid.UUID(job.payload["id"]))
+    if row is None:
+        return
+    company = _company(db, job)
+    if row.facts is None:
+        row.facts = build_facts(db, company.name, row.project_ids, row.period_start, row.period_end, company_today(company.timezone))
+    previous = row.outline if row.note else None
+    try:
+        outline, engine = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous)
+    except Exception:
+        if not _ai_final(job):
+            raise  # retried; on the last attempt the requester still gets a structure to review
+        outline, engine = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous, force_builtin=True)
+        outline["notes"] = "The AI engine was unavailable, so the built-in structure is shown."
+    row.outline, row.title, row.ai_provider, row.status, row.error, row.note = outline, outline["title"], engine, "outline_ready", None, None
+    db.commit()
+
+
+@handler("ai_report.generate")
+def ai_report_generate(db: Session, job: Job) -> None:
+    from .airep.assemble import assemble
+    from .airep.files import build_files
+    from .airep.writer import write_narrative
+
+    row = db.get(AiReport, uuid.UUID(job.payload["id"]))
+    if row is None or row.outline is None or row.facts is None:
+        return
+    company = _company(db, job)
+    previous = row.narrative if row.note else None
+    try:
+        narrative, engine = write_narrative(row.outline, row.facts, row.request, row.note, previous)
+    except Exception:
+        if not _ai_final(job):
+            raise
+        narrative, engine = write_narrative(row.outline, row.facts, row.request, row.note, previous, force_builtin=True)
+    md = assemble(row.outline, row.facts, narrative, company.name)
+    keys = build_files(db, row, company.name, md, row.facts, row.title or "Report")
+    row.narrative, row.markdown, row.ai_provider, row.error, row.note = narrative, md, engine, None, None
+    row.file_url_md, row.file_url_pdf, row.file_url_docx, row.file_url_xlsx = keys["md"], keys["pdf"], keys["docx"], keys["xlsx"]
+    row.status = "ready"
+    db.commit()
+
+
+def _fail_ai_report(db: Session, job: Job, error: str) -> None:
+    row = db.get(AiReport, uuid.UUID(job.payload["id"])) if job.payload.get("id") else None
+    if row is not None:
+        row.status, row.error = "failed", "The report could not be created. Please try again."
+        db.commit()
+
+
+ON_FAILURE["ai_report.plan"] = ON_FAILURE["ai_report.generate"] = _fail_ai_report

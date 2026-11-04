@@ -42,7 +42,7 @@ export function Layout() {
     { to: '/my-day', label: 'My day', icon: <TimerIcon />, show: hasAny('task.view', 'status.view') },
     { to: '/check-ins', label: 'Check-ins', icon: <GroupsIcon />, show: can('status.view.team') || can('status.view.all') },
     { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, show: hasAny('report.weekly.view', 'report.monthly.view', 'report.performance.view', 'report.visibility.view') },
-    { to: '/client-reports', label: 'Client reports', icon: <AutoAwesomeIcon />, show: ['report.template.manage', 'report.ai.draft', 'report.approve', 'report.share.client'].some(can) },
+    { to: '/ai-reports', label: 'AI reports', icon: <AutoAwesomeIcon />, show: can('report.ai.draft') || !!me?.owns_projects },
   ]
   const admin: Item[] = [
     { to: '/admin/users', label: 'Users & roles', icon: <AdminPanelSettingsIcon />, show: can('user.manage') || can('role.manage') },
@@ -95,7 +95,7 @@ export function Layout() {
         )}
       </List>
       <Box sx={{ p: 2, color: 'text.secondary' }}>
-        <Typography variant="caption">Release 1 · AI drafts, a person approves.</Typography>
+        <Typography variant="caption">Release 1</Typography>
       </Box>
     </Box>
   )

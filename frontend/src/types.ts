@@ -5,6 +5,7 @@ export interface Me {
   company: { id: string; name: string; timezone: string }
   roles: { id: string; name: string }[]
   permissions: string[]
+  owns_projects?: boolean
 }
 export interface Page<T> {
   items: T[]
@@ -213,4 +214,38 @@ export interface CheckInSummary {
   missing_morning: string[]
   missing_eod: string[]
   blockers: { user: string; text: string }[]
+}
+
+export interface AiOutlineSection {
+  id: string
+  title: string
+  scope: 'overall' | 'per_project'
+  visual: 'table' | 'chart' | 'flow' | 'text'
+  what: string
+}
+export interface AiReportSummary {
+  id: string
+  title: string
+  request: string
+  status: 'planning' | 'outline_ready' | 'generating' | 'ready' | 'failed'
+  format_mode: 'auto' | 'visibility' | 'sample'
+  period_start: string
+  period_end: string
+  error: string | null
+  created_at: string
+  written_by: 'ai' | 'builtin' | null
+  downloads: Record<'md' | 'pdf' | 'docx' | 'xlsx', string | null>
+}
+export interface AiReportDetail extends AiReportSummary {
+  created_by: string | null
+  project_names: string[]
+  no_activity: string[]
+  outline: { title: string; notes: string; sections: AiOutlineSection[]; per_project_count: number } | null
+  missing_text: boolean
+}
+export interface AiReportOptions {
+  projects: { id: string; name: string }[]
+  all_projects: boolean
+  ai_enabled: boolean
+  max_sample_chars: number
 }

@@ -18,7 +18,7 @@ function Shell({ title, subtitle, children }: { title: string; subtitle?: string
           Share the progress.
         </Typography>
         <Typography sx={{ opacity: 0.9, maxWidth: 460, fontSize: 18 }}>
-          Tasks, time, daily status and client-ready reports in one place. The AI drafts, a person approves.
+          Tasks, time, daily status and AI-written project reports in one place.
         </Typography>
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>

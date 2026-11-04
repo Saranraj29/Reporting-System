@@ -4,7 +4,7 @@ the effort per person. Every number is computed here; the AI only writes the sen
 key achievement) and never sees names."""
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -36,7 +36,7 @@ def query(rc: ReportContext) -> dict[str, Any]:
         for r in db.execute(text("SELECT pr.id, pr.name, c.name AS client FROM projects pr LEFT JOIN clients c ON c.id = pr.client_id"))
     }
     tasks = db.execute(
-        text(f"""SELECT t.project_id, t.title, t.status, t.activity_type FROM tasks t
+        text(f"""SELECT t.project_id, t.title, t.status, t.activity_type, t.due_date FROM tasks t
                  WHERE {TASK_FILTER} AND {ACTIVE} ORDER BY t.completed_at NULLS LAST, t.created_at LIMIT 3000"""), p).all()
     effort = db.execute(
         text(f"""SELECT t.project_id, t.activity_type, u.name AS person, sum(e.hours) AS h
@@ -55,13 +55,21 @@ def query(rc: ReportContext) -> dict[str, Any]:
         if info is None:
             continue
         pr = by_project.setdefault(t.project_id, {
-            **info, "status_counts": defaultdict(int), "activities": [], "deliverables": [], "by_type": defaultdict(int),
+            **info, "id": str(t.project_id), "status_counts": defaultdict(int), "activities": [], "deliverables": [], "by_type": defaultdict(int),
+            "blocked": [], "overdue": [], "upcoming": [],
         })
         pr["status_counts"][t.status] += 1
         pr["by_type"][t.activity_type] += 1
         pr["activities"].append({"title": t.title, "status": t.status})
         if t.status == "done":
             pr["deliverables"].append(t.title)
+        else:
+            if t.status == "blocked":
+                pr["blocked"].append(t.title)
+            if t.due_date and t.due_date < min(rc.end, rc.today):
+                pr["overdue"].append({"title": t.title, "due_date": t.due_date.isoformat(), "days_late": (min(rc.end, rc.today) - t.due_date).days})
+            elif t.due_date and rc.end <= t.due_date <= rc.end + timedelta(days=14):
+                pr["upcoming"].append({"title": t.title, "due_date": t.due_date.isoformat()})
 
     hours_by_type: dict[Any, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     hours_by_person: dict[Any, dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -78,7 +86,8 @@ def query(rc: ReportContext) -> dict[str, Any]:
         wip = sum(n for s, n in c.items() if s in IN_PROGRESS)
         hrs = hours_by_type.get(pid, {})
         entry: dict[str, Any] = {
-            "name": pr["name"], "client": pr["client"],
+            "id": pr["id"], "name": pr["name"], "client": pr["client"],
+            "blocked": pr["blocked"][:15], "overdue": pr["overdue"][:15], "upcoming": sorted(pr["upcoming"], key=lambda x: x["due_date"])[:15],
             "status": "completed" if planned and done == planned else "in_progress",
             "planned": planned, "completed": done, "in_progress": wip, "pending": todo,
             "progress": round(done / planned * 100) if planned else 0,
