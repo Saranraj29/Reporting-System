@@ -10,12 +10,14 @@ import TaskIcon from '@mui/icons-material/TaskAltOutlined'
 import TimerIcon from '@mui/icons-material/TimerOutlined'
 import GroupsIcon from '@mui/icons-material/GroupsOutlined'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesomeOutlined'
+import SmartToyIcon from '@mui/icons-material/SmartToyOutlined'
 import { AppBar, Avatar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
-import { useState, type ReactNode } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useRef, useState, type ReactNode } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { initials } from '../format'
 import { HeaderTimer } from '../timer'
+import { AssistantPanel, ASSISTANT_WIDTH } from './AssistantPanel'
 import { DailyStatusDialog } from './DailyStatusDialog'
 
 const WIDTH = 248
@@ -35,6 +37,13 @@ export function Layout() {
   const [statusOpen, setStatusOpen] = useState(false)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const nav = useNavigate()
+  const { pathname } = useLocation()
+  const trigger = useRef<HTMLButtonElement>(null)
+  const storeKey = `assistant-open:${me?.id}`
+  const [assistOpen, setAssistOpen] = useState(() => { try { return localStorage.getItem(storeKey) === '1' } catch { return false } })
+  const setAssist = (v: boolean) => { setAssistOpen(v); try { localStorage.setItem(storeKey, v ? '1' : '0') } catch { /* private mode */ } }
+  const hasAssistant = can('assistant.use') && !pathname.startsWith('/ai-reports') // AI reports keeps its own three-step flow
+  const docked = hasAssistant && assistOpen && !mobile  // `mobile` = below md: there the panel opens full screen instead of docking
 
   const main: Item[] = [
     { to: '/', label: 'Dashboard', icon: <DashboardIcon />, show: hasAny('dashboard.view') },
@@ -102,7 +111,7 @@ export function Layout() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <AppBar position="fixed" color="inherit" sx={{ width: { md: `calc(100% - ${WIDTH}px)` }, ml: { md: `${WIDTH}px` }, borderBottom: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
+      <AppBar position="fixed" color="inherit" sx={{ width: { md: `calc(100% - ${WIDTH}px - ${docked ? ASSISTANT_WIDTH : 0}px)` }, ml: { md: `${WIDTH}px` }, borderBottom: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
         <Toolbar>
           {mobile && (
             <IconButton edge="start" onClick={() => setOpen(true)} sx={{ mr: 1 }} aria-label="Open navigation">
@@ -111,6 +120,13 @@ export function Layout() {
           )}
           <Box sx={{ flex: 1 }} />
           <HeaderTimer />
+          {hasAssistant && (
+            <Tooltip title="AI assistant">
+              <IconButton ref={trigger} onClick={() => setAssist(!assistOpen)} aria-label="AI assistant" aria-pressed={assistOpen} sx={{ mr: 1 }} color={assistOpen ? 'primary' : 'default'}>
+                <SmartToyIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="Add today's status">
             <IconButton color="primary" onClick={() => setStatusOpen(true)} aria-label="Add daily status" sx={{ bgcolor: 'primary.main', color: '#fff', mr: 2, '&:hover': { bgcolor: 'primary.dark' } }}>
               <AddIcon />
@@ -118,7 +134,7 @@ export function Layout() {
           </Tooltip>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ cursor: 'pointer' }} onClick={(e) => setAnchor(e.currentTarget)}>
             <Avatar sx={{ width: 34, height: 34, bgcolor: 'secondary.main', fontSize: 14 }}>{initials(me?.name ?? '?')}</Avatar>
-            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+            <Box sx={{ display: { xs: 'none', sm: docked ? 'none' : 'block' } }}>  {/* the docked assistant narrows the top bar: keep only the avatar */}
               <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
                 {me?.name}
               </Typography>
@@ -152,9 +168,10 @@ export function Layout() {
           </Drawer>
         )}
       </Box>
-      <Box component="main" sx={{ flex: 1, minWidth: 0, p: { xs: 2, md: 3.5 }, pt: { xs: 10, md: 11 } }}>
+      <Box component="main" sx={{ flex: 1, minWidth: 0, p: { xs: 2, md: 3.5 }, pt: { xs: 10, md: 11 }, mr: { md: docked ? `${ASSISTANT_WIDTH}px` : 0 } }}>
         <Outlet />
       </Box>
+      {hasAssistant && <AssistantPanel open={assistOpen} onClose={() => setAssist(false)} returnFocus={() => trigger.current?.focus()} />}
       <DailyStatusDialog open={statusOpen} onClose={() => setStatusOpen(false)} />
     </Box>
   )

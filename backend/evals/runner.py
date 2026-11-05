@@ -121,7 +121,48 @@ def run_case(case: dict, work, drain, owner_conn, actors: dict) -> Result:
     return res
 
 
+def _sse(text: str) -> list[tuple[str, dict]]:
+    out = []
+    for block in text.strip().split("\n\n"):
+        m = re.match(r"event: (\w+)\ndata: (.*)", block, re.S)
+        if m:
+            out.append((m[1], json.loads(m[2])))
+    return out
+
+
+def actors_for(work) -> dict:
+    """Everyone an evaluation question can be asked as."""
+    return {"admin": work.admin, "manager": work.mgr, "lead": work.lead, "member_mia": work.m1, "member_max": work.m2, "owner_olive": work.out}
+
+
+def run_question(case: dict, work, actors: dict) -> Result:
+    """One assistant question as one person: the answer must contain what the data says, nothing outside that person's scope, and every sentence must be grounded."""
+    res = Result(case)
+    if case["as"] == "owner_olive":
+        work.admin.put(f"/projects/{work.project['id']}/members", {"user_ids": [], "owner_ids": [work.out.user_id]}).raise_for_status()
+    r = actors[case["as"]].post("/assistant/chat", {"message": case["text"], "context": {"page": "dashboard"}})
+    if r.status_code != 200:
+        res.problems.append(f"chat returned {r.status_code}")
+        return res
+    events = _sse(r.text)
+    sentences = [d for n, d in events if n == "sentence"]
+    text = " ".join([d["text"] for d in sentences] + [d["text"] for n, d in events if n == "clarify"])
+    if events and events[-1][0] == "error":
+        res.problems.append("assistant error: " + events[-1][1]["message"])
+        return res
+    res.checked, res.failed = len(sentences), sum(1 for d in sentences if not d["grounded"])
+    for pat in case["expect"]:
+        if not re.search(pat, text, re.I):
+            res.problems.append(f"answer does not match /{pat}/")
+    for pat in case["forbid"]:
+        if re.search(pat, text, re.I):
+            res.leak = True
+            res.problems.append(f"answer matches the forbidden /{pat}/")
+    return res
+
+
 def summarise(results: list[Result]) -> dict:
+    qs = [r for r in results if r.case["group"] == "question"]
     live = [r for r in results if r.case["group"] in ("standard", "sample", "injection")]
     planned = [r for r in live if r.case["group"] != "injection"]
     checked = sum(r.checked for r in live)
@@ -132,6 +173,8 @@ def summarise(results: list[Result]) -> dict:
         "injection_success": sum(r.canary_hit for r in results),
         "scope_leakage": sum(r.leak for r in results),
         "fallback_rate": round(sum(r.builtin for r in live) / len(live), 3) if live else None,
+        "question_pass_rate": round(sum(r.ok for r in qs) / len(qs), 3) if qs else None,
+        "answer_grounding_rate": round(1 - sum(r.failed for r in qs) / max(sum(r.checked for r in qs), 1), 3) if qs else None,
         "failures": [{"id": r.case["id"], "problems": r.problems} for r in results if not r.ok],
     }
 
@@ -149,4 +192,8 @@ def breaches(summary: dict) -> list[str]:
         out.append(f"{summary['scope_leakage']} scope leak(s)")
     if summary["fallback_rate"] is not None and summary["fallback_rate"] > t["fallback_rate_max"]:
         out.append(f"fallback rate {summary['fallback_rate']} > {t['fallback_rate_max']}")
+    if summary.get("question_pass_rate") is not None and summary["question_pass_rate"] < t["question_pass_rate_min"]:
+        out.append(f"question pass rate {summary['question_pass_rate']} < {t['question_pass_rate_min']}")
+    if summary.get("answer_grounding_rate") is not None and summary["answer_grounding_rate"] < t["answer_grounding_rate_min"]:
+        out.append(f"answer grounding rate {summary['answer_grounding_rate']} < {t['answer_grounding_rate_min']}")
     return out

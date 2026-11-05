@@ -26,6 +26,16 @@ def real_key():
         pytest.skip("no AI provider key in the environment")
 
 
+QUESTIONS = runner.load_cases("question")
+
+
+@pytest.mark.parametrize("case", QUESTIONS, ids=lambda c: c["id"])
+def test_question(case, work):
+    res = runner.run_question(case, work, runner.actors_for(work))
+    RESULTS.append(res)
+    assert not res.leak, res.problems  # a scope leak fails at once, whatever the thresholds say
+
+
 @pytest.mark.parametrize("case", LIVE, ids=lambda c: c["id"])
 def test_case(case, work, owner_conn):
     make_owner(work, work.m1)

@@ -396,3 +396,15 @@ def _fail_ai_report(db: Session, job: Job, error: str) -> None:
 
 
 ON_FAILURE["ai_report.plan"] = ON_FAILURE["ai_report.generate"] = _fail_ai_report
+
+
+# ------------------------------------------------------------------------------ retention of AI records
+@handler("cron.ai_retention")
+def ai_retention(db: Session, job: Job) -> None:
+    """ai_messages / conversations 30 days, ai_calls 90 days, feedback reasons 90 days (the rating stays)."""
+    from sqlalchemy import text
+
+    db.execute(text("DELETE FROM ai_messages WHERE created_at < now() - interval '30 days'"))
+    db.execute(text("DELETE FROM ai_conversations WHERE updated_at < now() - interval '30 days'"))
+    db.execute(text("DELETE FROM ai_calls WHERE created_at < now() - interval '90 days'"))
+    db.execute(text("UPDATE ai_feedback SET reason = '' WHERE created_at < now() - interval '90 days' AND reason <> ''"))

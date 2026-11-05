@@ -270,3 +270,35 @@ export interface AiReportOptions {
   ai_status: 'ready' | 'off' | 'not_configured' | 'provider_down'
   max_sample_chars: number
 }
+
+export interface AssistantCard {
+  id: string
+  title: string
+  subtitle: string
+  phase: number
+  enabled: boolean
+}
+export interface SourcesCard {
+  kind: 'sources'
+  sources: { label: string; as_of: string | null; returned: number; total: number; items: { id: string; title: string }[] }[]
+  handoff: { label: string; path: string; days: number | null; project_ids: string[] } | null
+}
+export interface AssistantMessage {
+  id?: string
+  role: 'user' | 'assistant'
+  text: string
+  card?: SourcesCard | null
+  sentences?: { text: string; grounded: boolean }[]
+  progress?: string
+  error?: string
+  created_at?: string
+}
+export interface AssistantStatus {
+  status: 'ready' | 'unavailable'
+  reason: 'off' | 'not_configured' | 'provider_down' | null
+  input_enabled: boolean
+  quick_actions_enabled: boolean
+  cards: AssistantCard[]
+  conversation_id: string | null
+  messages: AssistantMessage[]
+}

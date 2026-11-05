@@ -72,6 +72,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.waitForSelector('tbody tr')
     check((await page.locator('tbody tr').count()) >= 10, 'tasks list shows seeded tasks')
     await shot(page, '03-tasks')
+    await page.getByPlaceholder('Search tasks').fill('Offline mode')  // the list is date-ordered, so search instead of relying on its first page
     await page.getByText('Offline mode sync engine').click()
     await page.getByText('Time entries').waitFor()
     await shot(page, '04-task-detail')
@@ -241,6 +242,44 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     const opts = await page.getByRole('option').allInnerTexts()
     check(opts.length === 2 && opts[0] === 'All my projects' && opts[1] === 'Mobile App', `owner can only pick the owned project: ${opts.join(', ')}`)
     await ctx.close()
+  }
+
+  // ---------------------------------------------------------------- AI assistant (read-only): quick actions, scope, accessibility
+  {
+    const { ctx, page } = await login(browser, 'priya')
+    await page.waitForSelector('svg.recharts-surface')
+    await page.getByRole('button', { name: 'AI assistant' }).click()
+    const panel = page.getByRole('complementary', { name: 'AI assistant' })
+    await panel.waitFor()
+    check(await panel.getByText('Draft this week\'s brief').isVisible() && await panel.getByText('Coming soon').first().isVisible(), 'assistant shows three page cards; later-phase cards are greyed "Coming soon"')
+    check((await panel.getByRole('button', { name: /What is overdue/ }).isEnabled()) && !(await panel.getByRole('button', { name: /Draft this week/ }).isEnabled()), 'only phase-1 cards are clickable')
+    check(await panel.getByLabel('Ask your assistant anything').isDisabled(), 'free-text input is disabled while the AI service is not connected, quick actions still work')
+    await panel.getByRole('button', { name: /What is overdue/ }).click()
+    await panel.getByText(/overdue or blocked\./).waitFor({ timeout: 30000 })
+    await panel.getByText('Where this comes from').waitFor()
+    const answer = await panel.getByLabel('Conversation').innerText()
+    check(/Payment gateway sandbox access/.test(answer) && /not record the reason/.test(answer), 'answer lists real overdue tasks and says the reason is not recorded')
+    await panel.getByRole('button', { name: 'Show' }).first().click()
+    check(await panel.getByText(/as of/).first().isVisible(), 'the sources card shows row counts and an as-of time')
+    await shot(page, '32-assistant-panel')
+    const axe = await new (require('@axe-core/playwright').default)({ page }).include('aside[aria-label="AI assistant"]').analyze()
+    const bad = axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))
+    check(bad.length === 0, `assistant panel has no serious accessibility violations${bad.length ? ': ' + bad.map((v) => v.id + ' ' + v.nodes.map((n) => n.target.join(' ') + ' ' + (n.any[0] ? n.any[0].message : '')).join(' | ')).join('; ') : ''}`)
+    await page.keyboard.press('Escape')
+    await panel.waitFor({ state: 'hidden' })
+    check(await page.getByRole('button', { name: 'AI assistant' }).evaluate((el) => el === document.activeElement), 'Esc closes the panel and focus returns to the trigger')
+    await page.getByRole('link', { name: 'AI reports' }).click()
+    await page.getByRole('heading', { name: 'AI reports' }).waitFor()
+    check((await page.getByRole('button', { name: 'AI assistant' }).count()) === 0, 'AI reports keeps its own flow: no assistant button there')
+    await ctx.close()
+    // a member only gets answers about their own work
+    const m = await login(browser, 'divya')
+    await m.page.getByRole('button', { name: 'AI assistant' }).click()
+    const mp = m.page.getByRole('complementary', { name: 'AI assistant' })
+    await mp.getByRole('button', { name: /What is overdue/ }).click()
+    await mp.getByText(/Nothing is overdue or blocked|overdue or blocked\./).first().waitFor({ timeout: 30000 })
+    check(!/Payment gateway sandbox access/.test(await mp.getByLabel('Conversation').innerText()), 'a team member does not see other people\'s overdue work')
+    await m.ctx.close()
   }
 
   // ---------------------------------------------------------------- usability regressions (reported from real use)

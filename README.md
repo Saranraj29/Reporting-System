@@ -148,7 +148,20 @@ partial-failure retry, and schedule timing per company timezone.
   title and person code in the model's text against the facts it was given; a text that fails is replaced by built-in wording and counted ("N sections use
   standard wording"). `redact.py` turns people into codes and scrubs emails, phone numbers, @handles and links with query strings before anything is sent.
   Prompts are versioned files in `app/ai/prompts/` (`plan_v1.md`, `write_v1.md`); the model, prompt version, token usage, latency and verification result are stored on
-  each report. Default OpenAI/Gemini model ids are pinned to dated versions.
+  each report. Default OpenAI/Gemini model ids are pinned to dated versions. Operations: circuit breaker + kill switches (company *AI-written text* switch, `AI_ENABLED`), context budget
+  (per-project row caps, 30K-token refusal), one `ai_calls` row per model call (counts only), AI jobs on their own worker lane (`worker-ai`, `--queue ai`), daily report quota, thumbs up/down feedback,
+  usage card in Settings, and a golden set in `backend/evals` (75 cases; offline runner in CI, nightly run against the real model with thresholds; prompt files must match `prompt_stamps.json`).
+  Runbooks: [`docs/runbooks`](docs/runbooks), feedback triage: [`docs/ai/feedback-triage.md`](docs/ai/feedback-triage.md).
+* **AI assistant (phase 1, read-only)** – a panel docked on the right of every page except AI reports (header button; Esc closes it and returns focus). Three quick-action cards per
+  page (dashboard, tasks, my day, check-ins) run **code-owned workflows**: tools are called by code and the sentences come from templates, so they work with no AI key and are
+  grounded by construction. Phase 2/3 cards are greyed "Coming soon". **Free questions** (needs an AI key) run an agent loop in `app/ai/assistant`: the model picks one of six
+  read tools per step (`get_project_figures`, `get_overdue_and_blocked`, `get_upcoming`, `get_effort_by_activity`, `get_checkin_completion`, `explain_progress`), at most 6 calls /
+  ~10K tool tokens / 30 s per turn and 2 clarifying questions per conversation. Tools filter by the **caller's own scope** (own / team / all, plus every task in projects they own);
+  the tool list is filtered before the model sees it and re-checked on each call; daily-status text, comments and performance data are never tool results. People are codes while
+  the model works and are restored for the asker; the final answer is released **sentence by sentence over server-sent events**, each sentence checked against that turn's tool
+  results (a failed one becomes "I could not confirm one detail…"; e-mail addresses and phone numbers can never pass). A "Where this comes from" card (rows, total, as-of time,
+  hand-off to AI reports) is built by code. Conversations live in `ai_conversations` / `ai_messages` (30 days), with per-user (10/min) and per-company (500/day) limits and a
+  company switch (`ai_assistant_enabled`). Key `assistant.use` is seeded on every role.
 * **Project owners** – a project can have owners (Admin → Projects & clients). An owner sees every task, comment, time entry and
   dashboard figure inside that project, whoever created it or is assigned to it (view only; editing still follows `task.edit.*`,
   and daily-status text is never widened). Company Admin, Manager and CEO/CTO hold `…view.all`, so they see every project.

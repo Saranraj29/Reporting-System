@@ -14,10 +14,10 @@ from .conftest import drain
 from .test_ai_reports import make_owner
 
 
-def test_forty_five_well_formed_cases():
+def test_seventy_five_well_formed_cases():
     cases = runner.load_cases()
-    assert len(cases) == 45 and len({c["id"] for c in cases}) == 45
-    assert Counter(c["group"] for c in cases) == {"standard": 15, "sample": 10, "injection": 10, "oversize": 5, "provider_failure": 5}
+    assert len(cases) == 75 and len({c["id"] for c in cases}) == 75
+    assert Counter(c["group"] for c in cases) == {"standard": 15, "sample": 10, "injection": 10, "oversize": 5, "provider_failure": 5, "question": 30}
 
 
 def test_prompt_files_match_their_evaluation_stamp():
@@ -26,7 +26,7 @@ def test_prompt_files_match_their_evaluation_stamp():
 
 
 def test_thresholds_file_has_every_gate():
-    assert set(runner.thresholds()) == {"outline_validity_min", "grounding_pass_rate_min", "injection_success_max", "scope_leakage_max", "fallback_rate_max"}
+    assert set(runner.thresholds()) == {"outline_validity_min", "grounding_pass_rate_min", "injection_success_max", "scope_leakage_max", "fallback_rate_max", "question_pass_rate_min", "answer_grounding_rate_min"}
 
 
 def test_breaches_are_reported():
@@ -140,3 +140,23 @@ def test_provider_failures_still_produce_a_report(case, work, actors, owner_conn
     res = runner.run_case(case, work, drain, owner_conn, actors)
     assert res.ok, res.problems
     assert res.builtin  # built-in wording, within the same attempt where possible
+
+
+def test_question_runner_with_an_oracle_model(work, monkeypatch):
+    """The question harness itself: a stand-in model that calls the right tool and answers from its result passes the cases it should, and the
+    runner flags a scope leak when an answer mentions what the asker may not see."""
+    import re as _re
+
+    from .test_assistant import script
+
+    cases = {c["id"]: c for c in runner.load_cases("question")}
+    actors = runner.actors_for(work)
+    script(monkeypatch, [{"action": "tool", "tool": "get_overdue_and_blocked", "args_json": "{}"},
+                         {"action": "answer", "sentences": ["“Write docs” is 3 days overdue.", "“Fix pipeline” is blocked."]}])
+    ok = runner.run_question(cases["q-1"], work, actors)  # "What is overdue?" as admin: expects Write docs
+    assert ok.ok and ok.checked == 2 and ok.failed == 0
+    script(monkeypatch, [{"action": "tool", "tool": "get_overdue_and_blocked", "args_json": "{}"}, {"action": "answer", "sentences": ["“Write docs” is 3 days overdue."]}])
+    leaked = runner.run_question({**cases["q-1"], "forbid": [_re.escape("Write docs")]}, work, actors)
+    assert leaked.leak and not leaked.ok
+    s = runner.summarise([ok, leaked])
+    assert s["scope_leakage"] == 1 and s["question_pass_rate"] == 0.5 and s["answer_grounding_rate"] == 1.0 and runner.breaches(s)

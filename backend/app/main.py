@@ -9,7 +9,7 @@ from sqlalchemy import text
 from .config import get_settings
 from .db import get_engine, session_scope
 from .errors import install_error_handlers
-from .routers import ai_admin, ai_reports, auth, dashboard, people, reports, setup, tasks
+from .routers import ai_admin, ai_reports, assistant, auth, dashboard, people, reports, setup, tasks
 from .services.tenancy import sync_permissions
 
 log = logging.getLogger("api")
@@ -48,7 +48,7 @@ def create_app() -> FastAPI:
         return response
 
     api = APIRouter(prefix=API)
-    for r in (auth.router, people.router, setup.router, tasks.router, dashboard.router, reports.router, reports.shared_router, ai_reports.router, ai_admin.router):
+    for r in (auth.router, people.router, setup.router, tasks.router, dashboard.router, reports.router, reports.shared_router, ai_reports.router, ai_admin.router, assistant.router):
         api.include_router(r)
     app.include_router(api)
 

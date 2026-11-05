@@ -27,6 +27,7 @@ PERMISSIONS: dict[str, str] = {
     "report.ai.draft": "Create AI reports (any project)",
     "report.approve": "Approve client reports",
     "report.share.client": "Share approved reports with clients",
+    "assistant.use": "Use the AI assistant (answers only from data you may see)",
     "user.manage": "Manage users",
     "role.manage": "Manage roles and permissions",
     "project.manage": "Manage projects, teams and clients",
@@ -43,17 +44,17 @@ DEFAULT_ROLE = "Team Member"
 SEEDED_ROLES: dict[str, tuple[str, list[str]]] = {
     "Team Member": (
         "Own tasks, hours and status",
-        ["task.view.own", "task.edit.own", "status.view.own", "dashboard.view.own"],
+        ["task.view.own", "task.edit.own", "status.view.own", "dashboard.view.own", "assistant.use"],
     ),
     "Team Lead": (
         "Team tasks, hours, weekly/monthly/performance reports for their team",
-        ["task.view.team", "task.edit.team", "status.view.team", "dashboard.view.team", *_REPORTS_TEAM],
+        ["task.view.team", "task.edit.team", "status.view.team", "dashboard.view.team", *_REPORTS_TEAM, "assistant.use"],
     ),
     "Manager": (
         "All projects and teams, all reports, client reports",
         [
             "task.view.all", "task.edit.all", "status.view.all", "dashboard.view.all", *_REPORTS_ALL,
-            *_CLIENT, "project.manage",
+            *_CLIENT, "project.manage", "assistant.use",
         ],
     ),
     "CEO / CTO": ("Everything, all reports", list(PERMISSIONS)),
@@ -61,7 +62,7 @@ SEEDED_ROLES: dict[str, tuple[str, list[str]]] = {
         "Users, roles, projects, settings, Slack link (no performance reports unless also given that key)",
         [
             *_ADMIN, "task.view.all", "task.edit.all", "status.view.all", "dashboard.view.all",
-            "report.weekly.view.all", "report.monthly.view.all", "report.visibility.view.all", "report.template.manage", "report.ai.draft",
+            "report.weekly.view.all", "report.monthly.view.all", "report.visibility.view.all", "report.template.manage", "report.ai.draft", "assistant.use",
         ],
     ),
 }

@@ -15,7 +15,7 @@ ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 def _phone(m: re.Match[str]) -> str:
     raw = m.group(0)
-    if ISO_DATE.fullmatch(raw) or sum(c.isdigit() for c in raw) < 9:
+    if ISO_DATE.search(raw) or sum(c.isdigit() for c in raw) < 9:  # dates (and runs that contain one) are not phone numbers
         return raw
     return "[phone]"
 

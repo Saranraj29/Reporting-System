@@ -110,3 +110,38 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   a.remove()
   URL.revokeObjectURL(url)
 }
+
+export interface StreamEvent {
+  name: string
+  data: any
+}
+
+/** POSTs to a server-sent-events endpoint and calls `onEvent` for every event as it arrives (fetch + ReadableStream, so the auth header carries over). */
+export async function streamPost(path: string, body: unknown, onEvent: (e: StreamEvent) => void, retried = false): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+    body: JSON.stringify(body),
+  })
+  if (res.status === 401 && !retried && (await refreshSession())) return streamPost(path, body, onEvent, true)
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => null)
+    throw new ApiError(res.status, data?.code ?? 'error', data?.message ?? res.statusText)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let i: number
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, i)
+      buf = buf.slice(i + 2)
+      const m = /^event: (\w+)\ndata: ([\s\S]*)$/.exec(block)
+      if (m) onEvent({ name: m[1], data: JSON.parse(m[2]) })
+    }
+  }
+}

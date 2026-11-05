@@ -37,6 +37,8 @@ def schedule_tick(now: datetime | None = None) -> int:
                 queued += jobs.enqueue(db, "cron.morning_plan", cid, {"date": day.isoformat()}, dedupe_key=f"morning:{cid}:{day}")
             if wk < 5 and t >= dtime(17, 30):
                 queued += jobs.enqueue(db, "cron.daily_missing", cid, {"date": day.isoformat()}, dedupe_key=f"daily:{cid}:{day}")
+            if t >= dtime(3, 0):
+                queued += jobs.enqueue(db, "cron.ai_retention", cid, {"date": day.isoformat()}, dedupe_key=f"ai-retention:{cid}:{day}")
             if t >= dtime(9, 0):
                 queued += jobs.enqueue(db, "cron.due", cid, {"date": day.isoformat()}, dedupe_key=f"due:{cid}:{day}")
             if c.report_email_day is not None and t >= dtime(7, 0):

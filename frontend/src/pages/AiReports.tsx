@@ -14,8 +14,8 @@ import TableChartIcon from '@mui/icons-material/TableChartOutlined'
 import UploadIcon from '@mui/icons-material/UploadFileOutlined'
 import { Alert, Autocomplete, Box, Button, Chip, CircularProgress, Collapse, Paper, Stack, TextField, Typography } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
-import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { Empty, ErrorAlert, PageHeader, ReportFrame } from '../components/ui'
 import { fmtDate } from '../format'
@@ -74,7 +74,11 @@ export default function AiReports() {
   const [request, setRequest] = useState('')
   const [projects, setProjects] = useState<Option[]>([])
   const [people, setPeople] = useState<Option[]>([])
-  const [range, setRange] = useState<[string, string]>(() => PRESETS[0].range())
+  const [params] = useSearchParams()  // the assistant's "Open as full report" hands over the period and projects
+  const [range, setRange] = useState<[string, string]>(() => {
+    const d = Number(params.get('days'))
+    return d >= 1 && d <= 400 ? [daysAgo(d - 1), daysAgo(0)] : PRESETS[0].range()
+  })
   const [format, setFormat] = useState<'auto' | 'visibility' | 'sample'>('auto')
   const [sample, setSample] = useState('')
   const file = useRef<HTMLInputElement>(null)
@@ -84,6 +88,10 @@ export default function AiReports() {
     }),
     onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['ai-reports'] }); nav(`/ai-reports/${r.id}`) },
   })
+  useEffect(() => {
+    const ids = (params.get('projects') ?? '').split(',').filter(Boolean)
+    if (ids.length && options.data) setProjects(options.data.projects.filter((p) => ids.includes(p.id)))
+  }, [options.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const max = options.data?.max_sample_chars ?? 20000
   const canSend = !create.isPending && range[0] <= range[1] && (format !== 'sample' || sample.trim().length >= 20)
   const onFile = async (f?: File) => {

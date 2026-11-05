@@ -364,3 +364,26 @@ class AiFeedback(Base):
     reason: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[uuid.UUID | None] = _fk("users", True, "SET NULL")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AiConversation(Base):
+    __tablename__ = "ai_conversations"
+    id: Mapped[uuid.UUID] = _pk()
+    company_id: Mapped[uuid.UUID] = _cid()
+    user_id: Mapped[uuid.UUID] = _fk("users")
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AiMessage(Base):
+    __tablename__ = "ai_messages"
+    id: Mapped[uuid.UUID] = _pk()
+    company_id: Mapped[uuid.UUID] = _cid()
+    conversation_id: Mapped[uuid.UUID] = _fk("ai_conversations")
+    user_id: Mapped[uuid.UUID] = _fk("users")
+    role: Mapped[str] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text, default="")
+    card: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    tool_calls: Mapped[list[Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

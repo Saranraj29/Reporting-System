@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from .redact import scrub
+
 NUMBER = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s?(%?)")
 ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -96,6 +98,8 @@ def build_evidence(view: Any, back: dict[str, str]) -> Evidence:
 
 def verify_text(text: str, ev: Evidence, default_year: int | None = None) -> VerificationResult:
     flags: list[Flag] = []
+    if scrub(text) != text:  # the facts were scrubbed, so an e-mail, phone number or @handle in the answer was made up
+        flags.append(Flag("pii", "personal contact detail"))
     rest = text
     for m in QUOTED.finditer(text):
         if not ev.has_title(m[1]):
