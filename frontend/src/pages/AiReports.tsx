@@ -258,7 +258,7 @@ function Result({ r }: { r: AiReportDetail }) {
             {downloads.map(([k, label, icon]) => r.downloads[k] && <Button key={k} variant="contained" startIcon={icon} endIcon={<DownloadIcon />} href={r.downloads[k]!}>{label}</Button>)}
           </Stack>
         </Stack>
-        {r.missing_text && <Alert severity="info" sx={{ mt: 2 }}>The AI skipped a few text parts; standard wording was used there. Use “Rewrite the text” to try again.</Alert>}
+        {r.builtin_sections > 0 && <Alert severity="info" sx={{ mt: 2 }}>{r.builtin_sections} {r.builtin_sections === 1 ? 'section uses' : 'sections use'} standard wording: the AI text there could not be checked against your data. Use “Rewrite the text” to try again.</Alert>}
         {r.no_activity.length > 0 && <Alert severity="warning" sx={{ mt: 2 }}>No activity in this period for: {r.no_activity.join(', ')}.</Alert>}
         <Box sx={{ mt: 2 }}>
           {!open && <Button variant="outlined" onClick={() => setOpen(true)}>Rewrite the text</Button>}

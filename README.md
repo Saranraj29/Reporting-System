@@ -142,6 +142,13 @@ partial-failure retry, and schedule timing per company timezone.
   codes before anything reaches the model and restored afterwards. Without an AI key, or if the provider fails on the last retry, built-in outlines and
   wording are used, so a report can always be produced. Limits: the format is reproduced *structurally* — unusual elements of a sample become written
   sections, not pixel-exact copies. Old client-share/approve endpoints remain in the API but are not used by the UI.
+* **AI harness** ([`backend/app/ai`](backend/app/ai), from the *AI Hardening & Capability Plan*, Phase 0 step 1) – every model call for AI reports goes through
+  `gateway.call_structured`: a JSON schema the provider must follow (forced tool use on Anthropic, strict `json_schema` on OpenAI, `responseSchema` on Gemini),
+  temperature 0, validation in code, **one** repair call, then a built-in fallback in the same job attempt. `verify.py` checks every number, date, quoted task
+  title and person code in the model's text against the facts it was given; a text that fails is replaced by built-in wording and counted ("N sections use
+  standard wording"). `redact.py` turns people into codes and scrubs emails, phone numbers, @handles and links with query strings before anything is sent.
+  Prompts are versioned files in `app/ai/prompts/` (`plan_v1.md`, `write_v1.md`); the model, prompt version, token usage, latency and verification result are stored on
+  each report. Default OpenAI/Gemini model ids are pinned to dated versions.
 * **Project owners** – a project can have owners (Admin → Projects & clients). An owner sees every task, comment, time entry and
   dashboard figure inside that project, whoever created it or is assigned to it (view only; editing still follows `task.edit.*`,
   and daily-status text is never widened). Company Admin, Manager and CEO/CTO hold `…view.all`, so they see every project.
@@ -176,6 +183,6 @@ These are the places where the code does something other than (or beyond) the wr
   Chromium was copied in, because the sandbox could not download Playwright's browser. On a normal machine
   `docker compose up --build` fetches it itself — that exact download step was the one part not exercised.
 * The real Anthropic, OpenAI and Gemini calls and Google sign-in verification — exercised only with fakes (request shapes are asserted
-  in the tests, but no live key was available). Default model names (`gpt-4o-mini`, `gemini-2.0-flash`) may need updating; they are settings.
+  in the tests, but no live key was available). Default model ids are pinned to dated versions (`gpt-4o-mini-2024-07-18`, `gemini-2.0-flash-001`) and change only after the golden set passes; they are settings.
 * SMTP/SES delivery and a real Slack webhook — mail/Slack calls are faked in tests; the console mail backend is used in dev.
 * Performance targets (dashboard < 1 s at 20k tasks, export < 30 s) — not load-tested.

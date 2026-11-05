@@ -4,6 +4,7 @@ Swapping providers means changing `_call_model` only."""
 
 import json
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -69,6 +70,30 @@ class LLMConfig:
     model: str
     api_key: str
     base_url: str | None = None
+    # Structured-output mode, set by app.ai.gateway only: a JSON schema the provider must follow, and temperature 0.
+    json_schema: dict[str, Any] | None = None
+    schema_name: str = "respond"
+    temperature: float = 0.3
+
+
+# Token usage of the last provider call in this context ({"input", "output", "cached"}); read by app.ai.gateway for tracing.
+LAST_USAGE: ContextVar[dict[str, int] | None] = ContextVar("llm_last_usage", default=None)
+
+
+def _gemini_schema(node: Any) -> Any:
+    """Gemini's responseSchema is an OpenAPI subset: no additionalProperties, nullable instead of a ["x","null"] type."""
+    if isinstance(node, list):
+        return [_gemini_schema(x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    out = {k: _gemini_schema(v) for k, v in node.items() if k != "additionalProperties"}
+    t = out.get("type")
+    if isinstance(t, list):
+        non_null = [x for x in t if x != "null"]
+        out["type"] = non_null[0] if non_null else "string"
+        if "null" in t:
+            out["nullable"] = True
+    return out
 
 
 def _platform_key_model(provider: str) -> tuple[str | None, str]:
@@ -106,40 +131,68 @@ def _call_anthropic(system: str, user: str, cfg: LLMConfig) -> str:
     import anthropic
 
     client = anthropic.Anthropic(api_key=cfg.api_key, max_retries=1, timeout=60)
-    msg = client.messages.create(model=cfg.model, max_tokens=2500, system=system, messages=[{"role": "user", "content": user}])
+    kw: dict[str, Any] = {"model": cfg.model, "max_tokens": 2500, "messages": [{"role": "user", "content": user}]}
+    if cfg.json_schema is not None:  # forced tool use = schema-valid JSON; the static system prompt is cached
+        kw.update(
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}], temperature=cfg.temperature,
+            tools=[{"name": cfg.schema_name, "description": "Return the answer in this exact structure.", "input_schema": cfg.json_schema}],
+            tool_choice={"type": "tool", "name": cfg.schema_name},
+        )
+    else:
+        kw["system"] = system
+    msg = client.messages.create(**kw)
+    u = getattr(msg, "usage", None)
+    if u is not None:
+        LAST_USAGE.set({"input": getattr(u, "input_tokens", 0) or 0, "output": getattr(u, "output_tokens", 0) or 0, "cached": getattr(u, "cache_read_input_tokens", 0) or 0})
+    for b in msg.content:
+        if getattr(b, "type", "") == "tool_use":
+            return json.dumps(b.input)
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
 
 
 def _call_openai(system: str, user: str, cfg: LLMConfig) -> str:
+    fmt: dict[str, Any] = {"type": "json_object"}
+    if cfg.json_schema is not None:
+        fmt = {"type": "json_schema", "json_schema": {"name": cfg.schema_name, "strict": True, "schema": cfg.json_schema}}
     resp = httpx.post(
         f"{(cfg.base_url or 'https://api.openai.com/v1').rstrip('/')}/chat/completions",
         headers={"Authorization": f"Bearer {cfg.api_key}"},
         json={
-            "model": cfg.model, "temperature": 0.3, "response_format": {"type": "json_object"},
+            "model": cfg.model, "temperature": cfg.temperature, "response_format": fmt,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         },
         timeout=60,
     )
     if resp.status_code >= 400:
         raise _http_error(resp, cfg)
-    return resp.json()["choices"][0]["message"]["content"] or ""
+    data = resp.json()
+    u = data.get("usage") or {}
+    if u:
+        LAST_USAGE.set({"input": u.get("prompt_tokens", 0), "output": u.get("completion_tokens", 0), "cached": (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0)})
+    return data["choices"][0]["message"]["content"] or ""
 
 
 def _call_gemini(system: str, user: str, cfg: LLMConfig) -> str:
+    gen: dict[str, Any] = {"temperature": cfg.temperature, "responseMimeType": "application/json"}
+    if cfg.json_schema is not None:
+        gen["responseSchema"] = _gemini_schema(cfg.json_schema)
     resp = httpx.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.model}:generateContent",
         headers={"x-goog-api-key": cfg.api_key},
         json={
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
-            "generationConfig": {"temperature": 0.3, "responseMimeType": "application/json"},
+            "generationConfig": gen,
         },
         timeout=60,
     )
     if resp.status_code >= 400:
         raise _http_error(resp, cfg)
-    parts = resp.json()["candidates"][0]["content"]["parts"]
-    return "".join(p.get("text", "") for p in parts)
+    data = resp.json()
+    u = data.get("usageMetadata") or {}
+    if u:
+        LAST_USAGE.set({"input": u.get("promptTokenCount", 0), "output": u.get("candidatesTokenCount", 0), "cached": u.get("cachedContentTokenCount", 0)})
+    return "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
 
 
 _CALLERS = {"anthropic": _call_anthropic, "openai": _call_openai, "gemini": _call_gemini}

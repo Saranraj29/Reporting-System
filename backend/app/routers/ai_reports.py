@@ -66,7 +66,8 @@ def _out(ctx: Ctx, row: AiReport, detail: bool = False) -> dict:
             "title": row.outline["title"], "notes": row.outline.get("notes", ""), "sections": describe(row.outline),
             "per_project_count": sum(1 for s in row.outline["sections"] if s["scope"] == "per_project"),
         }
-        out["missing_text"] = bool((row.narrative or {}).get("_missing"))
+        out["builtin_sections"] = len((row.narrative or {}).get("_missing", [])) + len((row.verification or {}).get("failed", {}))
+        out["missing_text"] = out["builtin_sections"] > 0
     return out
 
 

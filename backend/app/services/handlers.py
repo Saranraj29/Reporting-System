@@ -320,13 +320,14 @@ def ai_report_plan(db: Session, job: Job) -> None:
         row.facts = build_facts(db, company.name, row.project_ids, row.period_start, row.period_end, company_today(company.timezone), row.person_ids)
     previous = row.outline if row.note else None
     try:
-        outline, engine = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous)
+        outline, engine, info = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous)
     except Exception:
         if not _ai_final(job):
             raise  # retried; on the last attempt the requester still gets a structure to review
-        outline, engine = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous, force_builtin=True)
+        outline, engine, info = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous, force_builtin=True)
         outline["notes"] = "The AI engine was unavailable, so the built-in structure is shown."
     row.outline, row.title, row.ai_provider, row.status, row.error, row.note = outline, outline["title"], engine, "outline_ready", None, None
+    _record_call(row, info)
     db.commit()
 
 
@@ -342,17 +343,28 @@ def ai_report_generate(db: Session, job: Job) -> None:
     company = _company(db, job)
     previous = row.narrative if row.note else None
     try:
-        narrative, engine = write_narrative(row.outline, row.facts, row.request, row.note, previous)
+        narrative, engine, info = write_narrative(row.outline, row.facts, row.request, row.note, previous)
     except Exception:
         if not _ai_final(job):
             raise
-        narrative, engine = write_narrative(row.outline, row.facts, row.request, row.note, previous, force_builtin=True)
+        narrative, engine, info = write_narrative(row.outline, row.facts, row.request, row.note, previous, force_builtin=True)
     md = assemble(row.outline, row.facts, narrative, company.name)
     keys = build_files(db, row, company.name, md, row.facts, row.title or "Report")
     row.narrative, row.markdown, row.ai_provider, row.error, row.note = narrative, md, engine, None, None
     row.file_url_md, row.file_url_pdf, row.file_url_docx, row.file_url_xlsx = keys["md"], keys["pdf"], keys["docx"], keys["xlsx"]
     row.status = "ready"
+    row.verification = narrative.get("_verification")
+    _record_call(row, info)
     db.commit()
+
+
+def _record_call(row: AiReport, info: dict | None) -> None:
+    """Which model and prompt produced this report, how much it cost and how long it took (no prompt text, no names)."""
+    if info is None:
+        row.model = row.prompt_version = row.latency_ms = row.usage = None
+        return
+    row.model, row.prompt_version, row.latency_ms = info["model"], info["prompt_version"], info["latency_ms"]
+    row.usage = {**info["usage"], "repaired": info["repaired"]}
 
 
 def _fail_ai_report(db: Session, job: Job, error: str) -> None:

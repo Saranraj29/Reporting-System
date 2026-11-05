@@ -243,6 +243,7 @@ export interface AiReportDetail extends AiReportSummary {
   no_activity: string[]
   outline: { title: string; notes: string; sections: AiOutlineSection[]; per_project_count: number } | null
   missing_text: boolean
+  builtin_sections: number
 }
 export interface AiReportOptions {
   projects: { id: string; name: string }[]

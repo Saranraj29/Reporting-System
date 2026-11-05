@@ -31,10 +31,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-5-5"
     openai_api_key: str | None = None
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-4o-mini-2024-07-18"  # pinned: upgrade = golden-set run + config change
     openai_base_url: str = "https://api.openai.com/v1"  # any OpenAI-compatible endpoint (Azure OpenAI, vLLM, ...)
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.0-flash-001"
     google_client_id: str | None = None
 
     storage_dir: str = "./var/files"

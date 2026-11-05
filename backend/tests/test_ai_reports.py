@@ -47,7 +47,8 @@ def fake_llm(monkeypatch, plan=None, record=None, write=None):
         if isinstance(write, Exception):
             raise write
         items = json.loads(user.split("ITEMS:\n", 1)[1].split("\n\nCHANGE", 1)[0].split("\n\nPREVIOUS", 1)[0])
-        return json.dumps({"text": write(items) if write else {i["key"]: f"Text for {i['key']}" for i in items}})
+        texts = write(items) if write else {i["key"]: f"Text for {i['key']}" for i in items}
+        return json.dumps({"items": [{"key": k, "text": v} for k, v in texts.items()]})
 
     monkeypatch.setattr(ai, "_call_model", fake)
 
