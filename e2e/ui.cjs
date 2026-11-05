@@ -239,6 +239,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByRole('link', { name: 'AI reports' }).click()
     await page.getByRole('heading', { name: 'AI reports' }).waitFor()
     await page.getByRole('combobox', { name: 'Projects' }).click()
+    await page.getByRole('option', { name: 'Mobile App' }).waitFor()  // the options load asynchronously; read the list only once they are in
     const opts = await page.getByRole('option').allInnerTexts()
     check(opts.length === 2 && opts[0] === 'All my projects' && opts[1] === 'Mobile App', `owner can only pick the owned project: ${opts.join(', ')}`)
     await ctx.close()
