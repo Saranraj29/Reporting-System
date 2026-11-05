@@ -261,3 +261,10 @@ def test_titles_with_personal_data_are_scrubbed_before_the_model(work, monkeypat
     assert seen and all("@" not in u and "98765" not in u for _, u in seen)
     assert any("[email]" in u for _, u in seen)
     assert not re.search(r"ravi\.k", json.dumps(seen))
+
+
+def test_timestamps_are_evidence_for_dates_not_for_numbers():
+    ev = verify.build_evidence({"as_of": "2026-11-05T11:42+00:00", "rows": [{"title": "Write docs"}]}, {})
+    assert not verify.verify_text("There are 42 overdue tasks.", ev, 2026).passed  # 42 is only the minute of the as-of time
+    assert not verify.verify_text("There are 11 overdue tasks.", ev, 2026).passed
+    assert verify.verify_text("As of 2026-11-05, “Write docs” is open.", ev, 2026).passed

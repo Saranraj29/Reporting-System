@@ -9,7 +9,8 @@ from typing import Any
 from .redact import scrub
 
 NUMBER = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s?(%?)")
-ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?")
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 MONTH_RE = "|".join(MONTHS)
 TEXT_DATE = re.compile(rf"\b(?:(\d{{1,2}})\s+({MONTH_RE})[a-z]*(?:,?\s+(\d{{4}}))?|({MONTH_RE})[a-z]*\s+(\d{{1,2}})(?:,?\s+(\d{{4}}))?)\b")
@@ -59,6 +60,8 @@ class Evidence:
                     self.dates.add(date(int(m[1]), int(m[2]), int(m[3])))
                 except ValueError:
                     pass
+            if TIMESTAMP.fullmatch(o.strip()):
+                return  # an as-of time or date is evidence for dates only; its hour and minute must not make "42 tasks" look grounded
             for n in _numbers_in(ISO_DATE.sub(" ", o)):
                 self.numbers.add(n)
         elif isinstance(o, list):

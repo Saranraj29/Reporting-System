@@ -208,13 +208,13 @@ def test_agent_calls_a_tool_then_answers_with_only_grounded_sentences(work, monk
     seen: list = []
     script(monkeypatch, [
         {"action": "tool", "tool": "get_overdue_and_blocked", "args_json": "{}"},
-        {"action": "answer", "sentences": ["“Write docs” is 3 days overdue and assigned to Person A.", "There are 42 overdue tasks in total.", "“Imaginary task” is blocked."]},
+        {"action": "answer", "sentences": ["“Write docs” is 3 days overdue and assigned to Person A.", "There are 4242 overdue tasks in total.", "“Imaginary task” is blocked."]},
     ], seen)
     ev = ask(work.admin, message="What is late?", context={"page": "dashboard"})
     out = [d for n, d in ev if n == "sentence"]
     assert out[0]["grounded"] and "Mia Member" in out[0]["text"]  # names are restored for the asker
     assert [s["grounded"] for s in out] == [True, False, False] and out[1]["text"] == out[2]["text"] == "I could not confirm one detail against your data, so I left it out."
-    assert "42" not in " ".join(sentences(ev)) and "Imaginary" not in " ".join(sentences(ev))
+    assert "4242" not in " ".join(sentences(ev)) and "Imaginary" not in " ".join(sentences(ev))
     second_prompt = seen[1][1]
     assert "Person A" in second_prompt and "Mia Member" not in second_prompt and "Max Member" not in second_prompt  # the model only saw codes
     assert "get_checkin_completion" in seen[0][0] and "assistant_v1" not in seen[0][0]
