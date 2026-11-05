@@ -37,7 +37,7 @@ def test_daily_status_reminder_goes_only_to_people_with_nothing_logged(work, own
 
 def test_schedule_tick_times_dedupe_and_timezones(org, owner_conn):
     org.admin.patch("/settings", {"timezone": "Asia/Kolkata"}).raise_for_status()
-    kinds = lambda: sorted(r[0] for r in owner_conn.execute("SELECT kind FROM jobs WHERE kind LIKE 'cron.%'"))  # noqa: E731
+    kinds = lambda: sorted(r[0] for r in owner_conn.execute("SELECT kind FROM jobs WHERE kind LIKE 'cron.%' AND kind <> 'cron.ai_retention'"))  # the nightly AI-record purge has its own test  # noqa: E731
     monday_11_30_utc = dt.datetime(2026, 11, 2, 11, 30, tzinfo=dt.UTC)  # 17:00 in Kolkata
     schedule_tick(monday_11_30_utc)
     assert kinds() == ["cron.due", "cron.morning_plan", "cron.report_email"]  # >= 09:00 / 10:00 / 07:00 (report day Monday); not yet 17:30
