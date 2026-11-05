@@ -243,6 +243,7 @@ class SettingsPatch(BaseModel):
     report_email_enabled: bool | None = None
     timezone: str | None = None
     email_domain: str | None = None
+    ai_enabled: bool | None = None
 
 
 def _settings_out(ctx: Ctx) -> dict:
@@ -251,7 +252,7 @@ def _settings_out(ctx: Ctx) -> dict:
     out = {
         "name": c.name, "timezone": c.timezone, "email_domain": c.email_domain,
         "report_email_enabled": c.report_email_day is not None, "report_email_day": c.report_email_day,
-        "slack_configured": bool(c.slack_webhook_url),
+        "slack_configured": bool(c.slack_webhook_url), "ai_enabled": c.ai_enabled,
     }
     if admin and c.slack_webhook_url:
         url = decrypt(c.slack_webhook_url) or ""
@@ -286,6 +287,8 @@ def patch_settings(body: SettingsPatch, ctx: Ctx = Depends(require("settings.man
         c.report_email_day = body.report_email_day
     elif body.report_email_enabled and c.report_email_day is None:
         c.report_email_day = 0
+    if body.ai_enabled is not None:  # company kill switch: reports fall back to built-in wording within 60 s, no restart
+        c.ai_enabled = body.ai_enabled
     if body.email_domain is not None:
         domain = body.email_domain.lower().strip()
         if domain in PUBLIC_DOMAINS or "." not in domain or not ctx.me.email.lower().endswith("@" + domain):

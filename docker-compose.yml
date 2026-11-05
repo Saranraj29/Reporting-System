@@ -56,10 +56,18 @@ services:
       MIGRATION_DATABASE_URL: postgresql+psycopg://rs_owner:rs_owner@db:5432/reporting
     depends_on: { db: { condition: service_healthy } }
 
-  worker:
+  worker:  # reminders, Slack, scheduled exports (the "default" lane and the schedules)
     <<: *backend
     restart: unless-stopped
-    command: python -m app.worker
+    command: python -m app.worker --queue default
+    environment: *api-env
+    volumes: [files:/data/files]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+
+  worker-ai:  # AI report jobs on their own lane: a slow model call never delays reminders or exports
+    <<: *backend
+    restart: unless-stopped
+    command: python -m app.worker --queue ai
     environment: *api-env
     volumes: [files:/data/files]
     depends_on: { migrate: { condition: service_completed_successfully } }

@@ -13,5 +13,6 @@ ignore = ["B008", "E501"]  # FastAPI's Depends()/Query() in defaults is the fram
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not eval'"
+markers = ["eval: golden-set run against the real model (nightly); needs an API key"]
 filterwarnings = ["ignore::DeprecationWarning"]

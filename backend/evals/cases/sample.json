@@ -1,0 +1,164 @@
+[
+ {
+  "id": "sample-1",
+  "group": "sample",
+  "label": "typed list",
+  "request": "",
+  "mode": "sample",
+  "sample": "1. Executive summary\n2. Progress per project\n3. Risks\n4. Next steps",
+  "headings": [
+   "Executive summary",
+   "Progress",
+   "Risks",
+   "Next steps"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-2",
+  "group": "sample",
+  "label": "bullets",
+  "request": "",
+  "mode": "sample",
+  "sample": "- Overview\n- Project status\n- Blockers\n- Effort\n- Outlook",
+  "headings": [
+   "Overview",
+   "Project status",
+   "Blockers",
+   "Effort",
+   "Outlook"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-3",
+  "group": "sample",
+  "label": "markdown headings",
+  "request": "",
+  "mode": "sample",
+  "sample": "## Summary\n\ntext\n\n## Delivery\n\ntext\n\n## Risks and issues\n\ntext\n\n## Plan for next period\n\ntext",
+  "headings": [
+   "Summary",
+   "Delivery",
+   "Risks and issues",
+   "Plan for next period"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-4",
+  "group": "sample",
+  "label": "short list",
+  "request": "",
+  "mode": "sample",
+  "sample": "Summary\nKey numbers\nRisks",
+  "headings": [
+   "Summary",
+   "Key numbers",
+   "Risks"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-5",
+  "group": "sample",
+  "label": "lettered",
+  "request": "",
+  "mode": "sample",
+  "sample": "A. Highlights\nB. Metrics\nC. Issues\nD. Next period",
+  "headings": [
+   "Highlights",
+   "Metrics",
+   "Issues",
+   "Next period"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-6",
+  "group": "sample",
+  "label": "per project",
+  "request": "",
+  "mode": "sample",
+  "sample": "Executive summary\nProgress per project\nTeam effort\nNext steps",
+  "headings": [
+   "Executive summary",
+   "Progress",
+   "Team effort",
+   "Next steps"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-7",
+  "group": "sample",
+  "label": "h1 report",
+  "request": "",
+  "mode": "sample",
+  "sample": "# Weekly\n\n# Goals\n\n# Status\n\n# Risks\n\n# Next",
+  "headings": [
+   "Goals",
+   "Status",
+   "Risks",
+   "Next"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-8",
+  "group": "sample",
+  "label": "numbered nested",
+  "request": "",
+  "mode": "sample",
+  "sample": "1. Summary\n2. Metrics\n3. Risks\n4. Budget\n5. Next steps",
+  "headings": [
+   "Summary",
+   "Metrics",
+   "Risks",
+   "Budget",
+   "Next steps"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-9",
+  "group": "sample",
+  "label": "table words",
+  "request": "",
+  "mode": "sample",
+  "sample": "Executive summary\nProjects table\nRisks table\nNext steps",
+  "headings": [
+   "Executive summary",
+   "Projects table",
+   "Risks table",
+   "Next steps"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "sample-10",
+  "group": "sample",
+  "label": "one line asks",
+  "request": "",
+  "mode": "sample",
+  "sample": "Overview\nDelivery status\nRisks\nOutlook\nAppendix",
+  "headings": [
+   "Overview",
+   "Delivery status",
+   "Risks",
+   "Outlook",
+   "Appendix"
+  ],
+  "period_days": 13,
+  "as": "admin"
+ }
+]

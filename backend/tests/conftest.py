@@ -49,6 +49,8 @@ def database():
 
 @pytest.fixture(autouse=True)
 def clean(database):
+    from app.ai import policy
+    from app.ai.breaker import breaker
     from app.config import get_settings
     from app.db import reset_engine
     from app.security import reset_rate_limits
@@ -58,6 +60,8 @@ def clean(database):
 
     get_settings.cache_clear()
     reset_engine()
+    breaker.reset()
+    policy.clear_cache()
     with _owner() as c:
         c.execute("TRUNCATE companies, jobs RESTART IDENTITY CASCADE")
     clear_permission_cache()

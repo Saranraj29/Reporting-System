@@ -19,13 +19,16 @@ def enqueue(
     payload: dict[str, Any] | None = None,
     run_at: datetime | None = None,
     dedupe_key: str | None = None,
+    queue: str | None = None,
 ) -> bool:
-    """Adds a job to the caller's transaction. Returns False if dedupe_key already exists."""
+    """Adds a job to the caller's transaction. Returns False if dedupe_key already exists.
+    AI jobs (kind 'ai_*') go to the 'ai' lane so a slow model call never delays reminders, Slack or scheduled exports."""
     values: dict[str, Any] = {
         "kind": kind,
         "company_id": uuid.UUID(str(company_id)) if company_id else None,
         "payload": payload or {},
         "dedupe_key": dedupe_key,
+        "queue": queue or ("ai" if kind.startswith("ai_") else "default"),
     }
     if run_at:
         values["run_at"] = run_at
@@ -33,16 +36,19 @@ def enqueue(
     return db.execute(stmt).first() is not None
 
 
-def claim_next(db: Session) -> Job | None:
+def claim_next(db: Session, queue: str | None = None) -> Job | None:
+    """queue None = any lane (tests, single-worker setups); otherwise only that lane."""
     # jobs stuck in 'running' (worker crashed) become runnable again after 10 minutes
     db.execute(
         update(Job)
         .where(Job.status == "running", Job.locked_at < func.now() - timedelta(minutes=10))
         .values(status="queued")
     )
+    stmt = select(Job).where(Job.status == "queued", Job.run_at <= func.now())
+    if queue is not None:
+        stmt = stmt.where(Job.queue == queue)
     job = db.execute(
-        select(Job)
-        .where(Job.status == "queued", Job.run_at <= func.now())
+        stmt
         .order_by(Job.run_at, Job.id)
         .limit(1)
         .with_for_update(skip_locked=True)

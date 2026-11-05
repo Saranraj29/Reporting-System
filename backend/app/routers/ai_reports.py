@@ -7,14 +7,15 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from ..ai import policy
 from ..deps import Ctx, get_ctx
 from ..errors import ApiError, bad_request, conflict, forbidden, not_found
-from ..models import AiReport, Project, ProjectMember, User
+from ..models import AiFeedback, AiReport, Project, ProjectMember, User
 from ..reports.render import markdown_to_html
 from ..security import make_file_token
-from ..services import ai, jobs
+from ..services import jobs
 from ..services.access import owned_project_ids
 from ..services.airep.outline import describe
 from ..services.airep.writer import SAMPLE_LIMIT
@@ -68,6 +69,8 @@ def _out(ctx: Ctx, row: AiReport, detail: bool = False) -> dict:
         }
         out["builtin_sections"] = len((row.narrative or {}).get("_missing", [])) + len((row.verification or {}).get("failed", {}))
         out["missing_text"] = out["builtin_sections"] > 0
+        vote = ctx.db.execute(select(AiFeedback.rating).where(AiFeedback.target_type == "report", AiFeedback.target_id == row.id, AiFeedback.created_by == ctx.me.id)).scalar_one_or_none()
+        out["my_feedback"] = None if vote is None else ("up" if vote > 0 else "down")
     return out
 
 
@@ -85,7 +88,7 @@ def options(ctx: Ctx = Depends(ai_ctx)):
     return {
         "projects": [{"id": str(i), "name": n} for i, n in ctx.db.execute(stmt)],
         "people": [{"id": str(i), "name": n} for i, n in ctx.db.execute(people)],
-        "all_projects": unrestricted, "ai_enabled": ai.resolve_config() is not None, "max_sample_chars": SAMPLE_LIMIT,
+        "all_projects": unrestricted, "ai_enabled": policy.unavailable_reason(ctx.company_id) is None, "ai_status": policy.unavailable_reason(ctx.company_id) or "ready", "max_sample_chars": SAMPLE_LIMIT,
     }
 
 
@@ -97,6 +100,19 @@ class CreateIn(BaseModel):
     period_end: date
     format_mode: str = Field(default="auto", pattern="^(auto|visibility|sample)$")
     format_sample: str = Field(default="", max_length=SAMPLE_LIMIT)
+
+
+def _check_quota(ctx: Ctx) -> None:
+    """Per-company daily limit on AI reports (counted from midnight company time)."""
+    from datetime import datetime, time
+
+    from ..services.timeutil import company_now
+
+    tz_now = company_now(ctx.company.timezone)
+    start = datetime.combine(tz_now.date(), time.min, tzinfo=tz_now.tzinfo)
+    used = ctx.db.execute(select(func.count()).select_from(AiReport).where(AiReport.created_at >= start)).scalar_one()
+    if used >= ctx.company.ai_daily_report_quota:
+        raise ApiError(429, "quota.reports", f"Your company has reached today's limit of {ctx.company.ai_daily_report_quota} AI reports. Try again tomorrow.")
 
 
 @router.post("/ai-reports", status_code=202)
@@ -121,6 +137,7 @@ def create(body: CreateIn, ctx: Ctx = Depends(ai_ctx)):
             stmt = stmt.where(User.id.in_(select(ProjectMember.user_id).where(ProjectMember.project_id.in_([uuid.UUID(i) for i in allowed]))))
         if {str(i) for i in ctx.db.execute(stmt).scalars()} != set(people):
             raise bad_request("invalid_person", "One or more people cannot be included in this report")
+    _check_quota(ctx)
     row = AiReport(
         company_id=ctx.company_id, created_by=ctx.me.id, request=body.request.strip(), project_ids=project_ids, person_ids=people or None,
         period_start=body.period_start, period_end=body.period_end, format_mode=body.format_mode,
@@ -205,6 +222,24 @@ def retry(report_id: uuid.UUID, ctx: Ctx = Depends(ai_ctx)):
     jobs.enqueue(ctx.db, kind, ctx.company_id, {"id": str(row.id), "rev": uuid.uuid4().hex})
     ctx.db.commit()
     return {"id": str(row.id), "status": row.status}
+
+
+class FeedbackIn(BaseModel):
+    rating: str = Field(pattern="^(up|down)$")
+    reason: str = Field(default="", max_length=500)
+
+
+@router.post("/ai-reports/{report_id}/feedback", status_code=204)
+def feedback(report_id: uuid.UUID, body: FeedbackIn, ctx: Ctx = Depends(ai_ctx)):
+    """Thumbs up/down with an optional reason; one vote per person and report (changing it replaces the vote)."""
+    row = _row(ctx, report_id)
+    mine = ctx.db.execute(select(AiFeedback).where(AiFeedback.target_type == "report", AiFeedback.target_id == row.id, AiFeedback.created_by == ctx.me.id)).scalar_one_or_none()
+    rating = 1 if body.rating == "up" else -1
+    if mine is None:
+        ctx.db.add(AiFeedback(company_id=ctx.company_id, target_type="report", target_id=row.id, rating=rating, reason=body.reason.strip(), created_by=ctx.me.id))
+    else:
+        mine.rating, mine.reason = rating, body.reason.strip()
+    ctx.db.commit()
 
 
 # --------------------------------------------------------------------------------------------- the result

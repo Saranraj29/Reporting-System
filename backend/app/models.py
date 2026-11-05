@@ -39,6 +39,10 @@ class Company(Base, Stamps):
     slack_webhook_url: Mapped[str | None] = mapped_column(Text)
     report_email_day: Mapped[int | None] = mapped_column(SmallInteger, default=0)
     timezone: Mapped[str] = mapped_column(Text, default="UTC")
+    ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True)  # company kill switch for every AI feature (built-in wording only when off)
+    ai_assistant_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    ai_daily_report_quota: Mapped[int] = mapped_column(Integer, default=50)
+    ai_daily_turn_quota: Mapped[int] = mapped_column(Integer, default=500)
 
 
 class User(Base, Stamps):
@@ -292,6 +296,7 @@ class Job(Base):
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     dedupe_key: Mapped[str | None] = mapped_column(Text, unique=True)
+    queue: Mapped[str] = mapped_column(Text, default="default")  # 'ai' jobs run on their own worker lane
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -326,3 +331,36 @@ class AiReport(Base, Stamps):
     file_url_pdf: Mapped[str | None] = mapped_column(Text)
     file_url_docx: Mapped[str | None] = mapped_column(Text)
     file_url_xlsx: Mapped[str | None] = mapped_column(Text)
+
+
+class AiCall(Base):
+    """One row per model call: who, which prompt/model, tokens, latency, verifier summary. Never prompt text or names."""
+
+    __tablename__ = "ai_calls"
+    id: Mapped[uuid.UUID] = _pk()
+    company_id: Mapped[uuid.UUID] = _cid()
+    surface: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(Text)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    repaired: Mapped[bool] = mapped_column(Boolean, default=False)
+    verifier: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    fallback: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AiFeedback(Base):
+    __tablename__ = "ai_feedback"
+    id: Mapped[uuid.UUID] = _pk()
+    company_id: Mapped[uuid.UUID] = _cid()
+    target_type: Mapped[str] = mapped_column(Text)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    rating: Mapped[int] = mapped_column(SmallInteger)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[uuid.UUID | None] = _fk("users", True, "SET NULL")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { Empty, ErrorAlert, PageHeader } from '../components/ui'
 import { fmtDateTime } from '../format'
-import type { Page, Settings, TaskField } from '../types'
+import type { AiUsage, Page, Settings, TaskField } from '../types'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const ZONES = ['UTC', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Dubai', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Australia/Sydney']
@@ -17,22 +17,41 @@ export default function AdminSettings() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Company" /><Tab label="Task fields" /><Tab label="Notification log" />
       </Tabs>
-      {tab === 0 && <Company />}
+      {tab === 0 && <><Company /><AiUsageCard /></>}
       {tab === 1 && <Fields />}
       {tab === 2 && <Log />}
     </>
   )
 }
 
+function AiUsageCard() {
+  const u = useQuery({ queryKey: ['ai-usage'], queryFn: () => api.get<AiUsage>('/ai/usage') })
+  if (!u.data) return null
+  const d = u.data
+  const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)}%`)
+  return (
+    <Paper sx={{ p: 3, maxWidth: 720, mt: 2.5 }}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>AI usage this month</Typography>
+      <Typography variant="caption" color="text.secondary">Since {d.since}. Counts only — no report text is stored here.</Typography>
+      <Stack direction="row" spacing={3} sx={{ mt: 1.5 }} flexWrap="wrap" useFlexGap>
+        {[['Calls', String(d.calls)], ['Failed calls', String(d.errors)], ['Tokens', (d.tokens.input + d.tokens.output).toLocaleString()], ['Checked against data', pct(d.grounding_pass_rate)],
+          ['Standard wording used', pct(d.fallback_rate)], ['Slowest 5%', d.p95_latency_ms === null ? '—' : `${(d.p95_latency_ms / 1000).toFixed(1)} s`], ['Thumbs up / down', `${d.thumbs.up} / ${d.thumbs.down}`]].map(([k, v]) => (
+          <div key={k}><Typography variant="h6" sx={{ fontWeight: 700 }}>{v}</Typography><Typography variant="caption" color="text.secondary">{k}</Typography></div>
+        ))}
+      </Stack>
+    </Paper>
+  )
+}
+
 function Company() {
   const qc = useQueryClient()
   const s = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/settings') })
-  const [f, setF] = useState({ name: '', timezone: 'UTC', report_email_enabled: true, report_email_day: 0, slack: '' })
+  const [f, setF] = useState({ name: '', timezone: 'UTC', report_email_enabled: true, report_email_day: 0, slack: '', ai_enabled: true })
   useEffect(() => {
-    if (s.data) setF({ name: s.data.name, timezone: s.data.timezone, report_email_enabled: s.data.report_email_enabled, report_email_day: s.data.report_email_day ?? 0, slack: '' })
+    if (s.data) setF({ name: s.data.name, timezone: s.data.timezone, report_email_enabled: s.data.report_email_enabled, report_email_day: s.data.report_email_day ?? 0, slack: '', ai_enabled: s.data.ai_enabled })
   }, [s.data])
   const save = useMutation({
-    mutationFn: (extra?: object) => api.patch('/settings', { name: f.name, timezone: f.timezone, report_email_enabled: f.report_email_enabled, report_email_day: f.report_email_enabled ? f.report_email_day : undefined, slack_webhook_url: f.slack || undefined, ...extra }),
+    mutationFn: (extra?: object) => api.patch('/settings', { name: f.name, timezone: f.timezone, report_email_enabled: f.report_email_enabled, report_email_day: f.report_email_enabled ? f.report_email_day : undefined, slack_webhook_url: f.slack || undefined, ai_enabled: f.ai_enabled, ...extra }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); qc.invalidateQueries({ queryKey: ['me'] }) },
   })
   return (
@@ -55,6 +74,10 @@ function Company() {
         <Stack spacing={1}>
           <TextField label="Slack incoming webhook URL" type="password" value={f.slack} onChange={(e) => setF({ ...f, slack: e.target.value })} placeholder={s.data?.slack_configured ? 'Configured — paste a new URL to replace' : 'https://hooks.slack.com/services/…'} helperText="Stored encrypted. Blocker alerts and reminders are also posted to this channel." />
           {s.data?.slack_configured && <Stack direction="row" spacing={1} alignItems="center"><Chip size="small" color="success" label="Slack connected" /><Typography variant="caption" color="text.secondary">{s.data.slack_webhook_hint}</Typography><Button size="small" color="error" onClick={() => save.mutate({ clear_slack: true, slack_webhook_url: undefined })}>Disconnect</Button></Stack>}
+        </Stack>
+        <Stack>
+          <FormControlLabel control={<Switch checked={f.ai_enabled} onChange={(e) => setF({ ...f, ai_enabled: e.target.checked })} />} label="AI-written text" />
+          <Typography variant="caption" color="text.secondary">When off, AI reports use the built-in layout and wording only. It takes effect within a minute; everything else keeps working.</Typography>
         </Stack>
         <ErrorAlert error={save.error} />
         {save.isSuccess && <Alert severity="success">Settings saved.</Alert>}

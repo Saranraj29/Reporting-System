@@ -1,0 +1,122 @@
+[
+ {
+  "id": "std-1-week",
+  "group": "standard",
+  "request": "Weekly update for the CTO",
+  "mode": "auto",
+  "period_days": 6,
+  "as": "admin"
+ },
+ {
+  "id": "std-1-fortnight",
+  "group": "standard",
+  "request": "Weekly update for the CTO",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "std-1-quarter",
+  "group": "standard",
+  "request": "Weekly update for the CTO",
+  "mode": "auto",
+  "period_days": 89,
+  "as": "admin"
+ },
+ {
+  "id": "std-2-week",
+  "group": "standard",
+  "request": "Management summary, focus on delays and risks",
+  "mode": "auto",
+  "period_days": 6,
+  "as": "owner"
+ },
+ {
+  "id": "std-2-fortnight",
+  "group": "standard",
+  "request": "Management summary, focus on delays and risks",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "owner"
+ },
+ {
+  "id": "std-2-quarter",
+  "group": "standard",
+  "request": "Management summary, focus on delays and risks",
+  "mode": "auto",
+  "period_days": 89,
+  "as": "admin"
+ },
+ {
+  "id": "std-3-week",
+  "group": "standard",
+  "request": "Status report for the steering committee",
+  "mode": "auto",
+  "period_days": 6,
+  "as": "admin"
+ },
+ {
+  "id": "std-3-fortnight",
+  "group": "standard",
+  "request": "Status report for the steering committee",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "std-3-quarter",
+  "group": "standard",
+  "request": "Status report for the steering committee",
+  "mode": "auto",
+  "period_days": 89,
+  "as": "admin"
+ },
+ {
+  "id": "std-4-week",
+  "group": "standard",
+  "request": "",
+  "mode": "auto",
+  "period_days": 6,
+  "as": "admin"
+ },
+ {
+  "id": "std-4-fortnight",
+  "group": "standard",
+  "request": "",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "std-4-quarter",
+  "group": "standard",
+  "request": "",
+  "mode": "auto",
+  "period_days": 89,
+  "as": "owner"
+ },
+ {
+  "id": "std-5-week",
+  "group": "standard",
+  "request": "Where are we against plan? Keep it short.",
+  "mode": "auto",
+  "period_days": 6,
+  "as": "admin"
+ },
+ {
+  "id": "std-5-fortnight",
+  "group": "standard",
+  "request": "Where are we against plan? Keep it short.",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "std-5-quarter",
+  "group": "standard",
+  "request": "Where are we against plan? Keep it short.",
+  "mode": "auto",
+  "period_days": 89,
+  "as": "admin"
+ }
+]

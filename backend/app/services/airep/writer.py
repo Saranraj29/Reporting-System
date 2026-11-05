@@ -5,10 +5,9 @@ import json
 import re
 from typing import Any
 
-from ...ai import gateway, prompts, schemas, verify
+from ...ai import budget, gateway, policy, prompts, schemas, trace, verify
 from ...ai.redact import llm_view, restore, scrub
 from ...reports import mdreport
-from .. import ai
 from .blocks import CATALOG
 from .outline import describe, sample_outline, standard_outline, validate_outline, visibility_outline
 
@@ -39,10 +38,10 @@ def plan_prompt(request: str, mode: str, sample: str, facts: dict[str, Any], not
 
 
 def plan_outline(request: str, mode: str, sample: str, facts: dict[str, Any], note: str | None = None, previous: dict | None = None,
-                 force_builtin: bool = False) -> tuple[dict[str, Any], str, dict[str, Any] | None]:
+                 force_builtin: bool = False, company_id: str | None = None) -> tuple[dict[str, Any], str, dict[str, Any] | None]:
     """(outline, engine, call info). `force_builtin` is set on the last retry so the requester always gets a structure to review.
     A model that cannot produce valid structure (even after one repair) also ends in the built-in outline, within the same attempt."""
-    cfg = None if force_builtin else ai.resolve_config()
+    cfg = None if force_builtin else policy.active_config(company_id)
     if mode == "visibility" and not note:
         return visibility_outline(), "builtin", None
     if cfg is None:
@@ -56,10 +55,10 @@ def plan_outline(request: str, mode: str, sample: str, facts: dict[str, Any], no
         return out, "builtin", None
     try:
         got, info = gateway.call_structured(PLAN_SYSTEM, plan_prompt(request, mode, sample, facts, note, previous), schemas.OutlineOut,
-                                            schemas.OUTLINE_SCHEMA, "report_structure", cfg, PLAN_VERSION)
+                                            schemas.OUTLINE_SCHEMA, "report_structure", cfg, PLAN_VERSION, company_id, "report.plan")
         return validate_outline(got.model_dump()), cfg.provider, info.as_dict()
     except (gateway.StructuralError, ValueError):
-        out, _, _ = plan_outline(request, mode, sample, facts, note, previous, force_builtin=True)
+        out, _, _ = plan_outline(request, mode, sample, facts, note, previous, force_builtin=True, company_id=company_id)
         out["notes"] = "The AI answered in an unusable form, so the built-in structure is shown."
         return out, "builtin", None
 
@@ -95,18 +94,19 @@ def write_prompt(items: list[dict[str, str]], view: dict[str, Any], request: str
 
 
 def write_narrative(outline: dict[str, Any], facts: dict[str, Any], request: str, note: str | None = None, previous: dict | None = None,
-                    force_builtin: bool = False) -> tuple[dict[str, Any], str, dict[str, Any] | None]:
+                    force_builtin: bool = False, company_id: str | None = None) -> tuple[dict[str, Any], str, dict[str, Any] | None]:
     """(narrative, engine, call info). Every text the model returns is checked against the facts it was given; a text that does not
     hold up is replaced by the built-in wording for that key (listed under `_verification`)."""
     items = needed(outline, facts)
-    cfg = None if force_builtin else ai.resolve_config()
+    cfg = None if force_builtin else policy.active_config(company_id)
     base = fallback_narrative(outline, facts)
     if cfg is None or not items:
         return base, "builtin", None
     view, back = llm_view(facts)
+    view = budget.cap_view(view)
     try:
         got, info = gateway.call_structured(WRITE_SYSTEM, write_prompt(items, view, scrub(request), scrub(note) if note else note, previous), schemas.NarrativeOut,
-                                            schemas.NARRATIVE_SCHEMA, "report_text", cfg, WRITE_VERSION)
+                                            schemas.NARRATIVE_SCHEMA, "report_text", cfg, WRITE_VERSION, company_id, "report.write")
     except gateway.StructuralError:
         base["_verification"] = {"checked": 0, "failed": {}, "reason": "unusable answer"}
         return base, "builtin", None
@@ -131,6 +131,7 @@ def write_narrative(outline: dict[str, Any], facts: dict[str, Any], request: str
     if missing:
         out["_missing"] = missing  # kept from the fallback; shown to the requester
     out["_verification"] = {"checked": checked, "failed": failed}
+    trace.update_outcome(company_id, info.call_id, {"checked": checked, "failed": len(failed)}, fallback=bool(failed or missing))
     return out, cfg.provider, info.as_dict()
 
 

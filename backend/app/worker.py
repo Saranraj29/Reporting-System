@@ -2,6 +2,7 @@
 Picks up jobs from PostgreSQL, fires the time-based schedules, sends mail/Slack, calls the AI model and
 writes report files."""
 
+import argparse
 import logging
 import time
 import traceback
@@ -93,13 +94,13 @@ def run_job(qdb, job) -> bool:
         tdb.close()
 
 
-def run_pending(max_jobs: int = 1000) -> int:
-    """Process due jobs until none are left (or max_jobs). Returns how many were attempted."""
+def run_pending(max_jobs: int = 1000, queue: str | None = None) -> int:
+    """Process due jobs until none are left (or max_jobs). Returns how many were attempted. `queue` limits the lane (None = all)."""
     n = 0
     while n < max_jobs:
         qdb = new_session()
         try:
-            job = jobs.claim_next(qdb)
+            job = jobs.claim_next(qdb, queue)
             if job is None:
                 return n
             run_job(qdb, job)
@@ -109,17 +110,21 @@ def run_pending(max_jobs: int = 1000) -> int:
     return n
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    """`python -m app.worker` serves every lane; `--queue ai` only the AI lane; `--queue default` everything else (and the schedules)."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--queue", choices=["default", "ai"], default=None)
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     s = get_settings()
-    log.info("worker started")
+    log.info("worker started (lane: %s)", args.queue or "all")
     last_tick = 0.0
     while True:
         try:
-            if time.monotonic() - last_tick >= 60:
+            if args.queue != "ai" and time.monotonic() - last_tick >= 60:
                 schedule_tick()
                 last_tick = time.monotonic()
-            if run_pending() == 0:
+            if run_pending(queue=args.queue) == 0:
                 time.sleep(s.worker_poll_seconds)
         except Exception:  # noqa: BLE001
             log.exception("worker loop error")

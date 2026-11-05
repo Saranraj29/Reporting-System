@@ -1,0 +1,47 @@
+[
+ {
+  "id": "over-1",
+  "group": "oversize",
+  "request": "Full report",
+  "mode": "auto",
+  "period_days": 400,
+  "max_input_tokens": 8100,
+  "as": "admin"
+ },
+ {
+  "id": "over-2",
+  "group": "oversize",
+  "request": "Full report",
+  "mode": "auto",
+  "period_days": 399,
+  "max_input_tokens": 8200,
+  "as": "admin"
+ },
+ {
+  "id": "over-3",
+  "group": "oversize",
+  "request": "Full report",
+  "mode": "auto",
+  "period_days": 200,
+  "max_input_tokens": 8100,
+  "as": "admin"
+ },
+ {
+  "id": "over-4",
+  "group": "oversize",
+  "request": "Full report",
+  "mode": "auto",
+  "period_days": 90,
+  "max_input_tokens": 8150,
+  "as": "admin"
+ },
+ {
+  "id": "over-5",
+  "group": "oversize",
+  "request": "Full report",
+  "mode": "auto",
+  "period_days": 30,
+  "max_input_tokens": 8050,
+  "as": "admin"
+ }
+]

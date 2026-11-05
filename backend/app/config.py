@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"  # any OpenAI-compatible endpoint (Azure OpenAI, vLLM, ...)
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash-001"
+    ai_enabled: bool = True  # platform kill switch: false = built-in wording only, no model calls (re-read every 60 s by app.ai.policy)
+    ai_max_input_tokens: int = 30000  # a model request above this (chars / 4) is refused with a "narrow the scope" message
+    ai_monthly_token_budget: int = 0  # tokens per company per month; 0 = no alert. A warning is logged at 80 %
     google_client_id: str | None = None
 
     storage_dir: str = "./var/files"

@@ -196,6 +196,22 @@ export interface Settings {
   report_email_day: number | null
   slack_configured: boolean
   slack_webhook_hint?: string
+  ai_enabled: boolean
+}
+export interface AiUsage {
+  since: string
+  status: string
+  enabled: boolean
+  calls: number
+  errors: number
+  tokens: { input: number; output: number; cached: number }
+  budget_used_pct: number | null
+  grounding_pass_rate: number | null
+  fallback_rate: number | null
+  repair_rate: number | null
+  p95_latency_ms: number | null
+  thumbs: { up: number; down: number }
+  quota: { reports_per_day: number; turns_per_day: number }
 }
 export interface Comment {
   id: string
@@ -244,11 +260,13 @@ export interface AiReportDetail extends AiReportSummary {
   outline: { title: string; notes: string; sections: AiOutlineSection[]; per_project_count: number } | null
   missing_text: boolean
   builtin_sections: number
+  my_feedback: 'up' | 'down' | null
 }
 export interface AiReportOptions {
   projects: { id: string; name: string }[]
   people: { id: string; name: string }[]
   all_projects: boolean
   ai_enabled: boolean
+  ai_status: 'ready' | 'off' | 'not_configured' | 'provider_down'
   max_sample_chars: number
 }

@@ -1,0 +1,52 @@
+[
+ {
+  "id": "fail-1",
+  "group": "provider_failure",
+  "label": "timeout",
+  "failure": "timeout",
+  "request": "Weekly update",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "fail-2",
+  "group": "provider_failure",
+  "label": "server error 5xx",
+  "failure": "http_5xx",
+  "request": "Weekly update",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "fail-3",
+  "group": "provider_failure",
+  "label": "malformed json",
+  "failure": "malformed",
+  "request": "Weekly update",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "fail-4",
+  "group": "provider_failure",
+  "label": "empty text",
+  "failure": "empty",
+  "request": "Weekly update",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ },
+ {
+  "id": "fail-5",
+  "group": "provider_failure",
+  "label": "breaker open",
+  "failure": "breaker_open",
+  "request": "Weekly update",
+  "mode": "auto",
+  "period_days": 13,
+  "as": "admin"
+ }
+]

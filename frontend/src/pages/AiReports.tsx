@@ -3,6 +3,8 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import BarChartIcon from '@mui/icons-material/BarChartOutlined'
 import CheckIcon from '@mui/icons-material/CheckCircleOutline'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import ThumbDownIcon from '@mui/icons-material/ThumbDownAltOutlined'
+import ThumbUpIcon from '@mui/icons-material/ThumbUpAltOutlined'
 import DescriptionIcon from '@mui/icons-material/DescriptionOutlined'
 import DownloadIcon from '@mui/icons-material/Download'
 import NotesIcon from '@mui/icons-material/NotesOutlined'
@@ -139,7 +141,7 @@ export default function AiReports() {
             <Button variant="contained" size="large" startIcon={<AutoAwesomeIcon />} disabled={!canSend} onClick={() => create.mutate()}>
               {create.isPending ? 'Preparing…' : 'Show me the structure'}
             </Button>
-            {options.data && !options.data.ai_enabled && <Typography variant="caption" color="text.secondary">AI is not connected yet — a built-in layout and wording will be used.</Typography>}
+            {options.data && !options.data.ai_enabled && <Typography variant="caption" color="text.secondary">{{ off: 'AI-written text is switched off — the built-in layout and wording will be used.', not_configured: 'AI is not connected yet — a built-in layout and wording will be used.', provider_down: 'The AI service is not answering right now — the built-in layout and wording will be used.', ready: '' }[options.data.ai_status]}</Typography>}
           </Stack>
         </Stack>
       </Paper>
@@ -234,6 +236,32 @@ function Working({ text, sub }: { text: string; sub: string }) {
   )
 }
 
+function Feedback({ r }: { r: AiReportDetail }) {
+  const qc = useQueryClient()
+  const [asking, setAsking] = useState(false)
+  const [reason, setReason] = useState('')
+  const vote = useMutation({
+    mutationFn: (v: { rating: 'up' | 'down'; reason?: string }) => api.post(`/ai-reports/${r.id}/feedback`, v),
+    onSuccess: () => { setAsking(false); qc.invalidateQueries({ queryKey: ['ai-report', r.id] }) },
+  })
+  return (
+    <Box sx={{ mt: 2 }}>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Typography variant="body2" color="text.secondary">Was this report useful?</Typography>
+        <Button size="small" variant={r.my_feedback === 'up' ? 'contained' : 'outlined'} startIcon={<ThumbUpIcon />} onClick={() => vote.mutate({ rating: 'up' })} aria-pressed={r.my_feedback === 'up'}>Yes</Button>
+        <Button size="small" variant={r.my_feedback === 'down' ? 'contained' : 'outlined'} startIcon={<ThumbDownIcon />} onClick={() => setAsking(true)} aria-pressed={r.my_feedback === 'down'}>No</Button>
+      </Stack>
+      <Collapse in={asking} unmountOnExit>
+        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+          <TextField size="small" fullWidth autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What was wrong? (optional)" inputProps={{ 'aria-label': 'What was wrong' }} />
+          <Button variant="contained" onClick={() => vote.mutate({ rating: 'down', reason })} disabled={vote.isPending}>Send</Button>
+        </Stack>
+      </Collapse>
+      <ErrorAlert error={vote.error} />
+    </Box>
+  )
+}
+
 function Result({ r }: { r: AiReportDetail }) {
   const qc = useQueryClient()
   const [note, setNote] = useState('')
@@ -260,6 +288,7 @@ function Result({ r }: { r: AiReportDetail }) {
         </Stack>
         {r.builtin_sections > 0 && <Alert severity="info" sx={{ mt: 2 }}>{r.builtin_sections} {r.builtin_sections === 1 ? 'section uses' : 'sections use'} standard wording: the AI text there could not be checked against your data. Use “Rewrite the text” to try again.</Alert>}
         {r.no_activity.length > 0 && <Alert severity="warning" sx={{ mt: 2 }}>No activity in this period for: {r.no_activity.join(', ')}.</Alert>}
+        <Feedback r={r} />
         <Box sx={{ mt: 2 }}>
           {!open && <Button variant="outlined" onClick={() => setOpen(true)}>Rewrite the text</Button>}
           <Collapse in={open} unmountOnExit>

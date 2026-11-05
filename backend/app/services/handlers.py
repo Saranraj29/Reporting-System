@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..ai.budget import ContextLimitError, cap_view, view_tokens
 from ..config import get_settings
 from ..models import (
     AiReport,
@@ -318,13 +319,17 @@ def ai_report_plan(db: Session, job: Job) -> None:
     company = _company(db, job)
     if row.facts is None:
         row.facts = build_facts(db, company.name, row.project_ids, row.period_start, row.period_end, company_today(company.timezone), row.person_ids)
+    if _too_big(row.facts):
+        return _fail_limit(row, db)
     previous = row.outline if row.note else None
     try:
-        outline, engine, info = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous)
+        outline, engine, info = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous, company_id=str(row.company_id))
+    except ContextLimitError:
+        return _fail_limit(row, db)
     except Exception:
         if not _ai_final(job):
             raise  # retried; on the last attempt the requester still gets a structure to review
-        outline, engine, info = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous, force_builtin=True)
+        outline, engine, info = plan_outline(row.request, row.format_mode, row.format_sample, row.facts, row.note, previous, force_builtin=True, company_id=str(row.company_id))
         outline["notes"] = "The AI engine was unavailable, so the built-in structure is shown."
     row.outline, row.title, row.ai_provider, row.status, row.error, row.note = outline, outline["title"], engine, "outline_ready", None, None
     _record_call(row, info)
@@ -343,11 +348,13 @@ def ai_report_generate(db: Session, job: Job) -> None:
     company = _company(db, job)
     previous = row.narrative if row.note else None
     try:
-        narrative, engine, info = write_narrative(row.outline, row.facts, row.request, row.note, previous)
+        narrative, engine, info = write_narrative(row.outline, row.facts, row.request, row.note, previous, company_id=str(row.company_id))
+    except ContextLimitError:
+        return _fail_limit(row, db)
     except Exception:
         if not _ai_final(job):
             raise
-        narrative, engine, info = write_narrative(row.outline, row.facts, row.request, row.note, previous, force_builtin=True)
+        narrative, engine, info = write_narrative(row.outline, row.facts, row.request, row.note, previous, force_builtin=True, company_id=str(row.company_id))
     md = assemble(row.outline, row.facts, narrative, company.name)
     keys = build_files(db, row, company.name, md, row.facts, row.title or "Report")
     row.narrative, row.markdown, row.ai_provider, row.error, row.note = narrative, md, engine, None, None
@@ -355,6 +362,20 @@ def ai_report_generate(db: Session, job: Job) -> None:
     row.status = "ready"
     row.verification = narrative.get("_verification")
     _record_call(row, info)
+    db.commit()
+
+
+def _too_big(facts: dict) -> bool:
+    """The facts the writer would send (people coded, lists capped) plus room for the prompt and the items must fit the context budget."""
+    from ..ai.redact import llm_view
+
+    view = cap_view(llm_view(facts)[0])
+    return view_tokens(view) > get_settings().ai_max_input_tokens - 8000
+
+
+def _fail_limit(row: AiReport, db: Session) -> None:
+    """limit.context: tell the requester to narrow the scope; retrying the same request cannot help, so the job ends normally."""
+    row.status, row.error = "failed", ContextLimitError.user_message
     db.commit()
 
 
