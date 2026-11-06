@@ -298,6 +298,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByRole('button', { name: 'AI assistant' }).click()
     const panel = page.getByRole('complementary', { name: 'AI assistant' })
     await panel.waitFor()
+    await panel.getByText('Draft this week\'s brief').waitFor()  // the cards arrive with the status request
     check(await panel.getByText('Draft this week\'s brief').isVisible() && await panel.getByText('Coming soon').first().isVisible(), 'assistant shows three page cards; later-phase cards are greyed "Coming soon"')
     check((await panel.getByRole('button', { name: /What is overdue/ }).isEnabled()) && !(await panel.getByRole('button', { name: /Draft this week/ }).isEnabled()), 'only phase-1 cards are clickable')
     check(await panel.getByLabel('Ask your assistant anything').isDisabled(), 'free-text input is disabled while the AI service is not connected, quick actions still work')
