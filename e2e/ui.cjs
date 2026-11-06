@@ -230,7 +230,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     check(true, 'a team (department) can be created with a description')
     await shot(page, '33-admin-teams')
     // a team is chosen when a project is created; the project's tasks inherit it
-    await page.getByRole('link', { name: 'Projects', exact: true }).click()
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Projects', exact: true }).click()
     await page.getByRole('button', { name: 'New project' }).click()
     const pd = page.getByRole('dialog')
     await pd.getByLabel(/^Name/).fill('Design portal')
@@ -243,7 +243,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByRole('option', { name: 'Design' }).click()
     await page.getByRole('row', { name: /Website Revamp/ }).waitFor({ state: 'hidden' })
     check((await page.getByRole('row').filter({ hasText: 'Design portal' }).count()) === 1, 'the Projects list filters by team')
-    await page.getByRole('link', { name: 'Tasks' }).click()
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Tasks', exact: true }).click()
     await page.getByRole('button', { name: 'New task' }).click()
     check((await page.getByRole('dialog').getByLabel('Team (department)').count()) === 0, 'tasks have no team field of their own')
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
