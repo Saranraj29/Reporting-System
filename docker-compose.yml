@@ -22,7 +22,13 @@ x-api-env: &api-env
   GEMINI_API_KEY: ${GEMINI_API_KEY:-}
   GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash-001}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-  EMAIL_BACKEND: ${EMAIL_BACKEND:-console}
+  APP_ENV: ${APP_ENV:-dev}  # dev shows the "Development mode: open link" shortcuts on the verify / reset screens; prod hides them
+  EMAIL_BACKEND: ${EMAIL_BACKEND:-console}  # console = print the email in the logs; smtp = really send it
+  EMAIL_FROM: ${EMAIL_FROM:-Project Transparency <no-reply@example.com>}
+  SMTP_HOST: ${SMTP_HOST:-localhost}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   STORAGE_DIR: /data/files
   AUTH_RATE_LIMIT_PER_MIN: ${AUTH_RATE_LIMIT_PER_MIN:-10}  # 0 disables (needed to run the E2E tour against this stack)
 
