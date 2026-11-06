@@ -53,6 +53,8 @@ export interface Project {
   name: string
   client_id: string | null
   client_name: string | null
+  team_id: string | null
+  team_name: string | null
   status: string
   start_date: string | null
   end_date: string | null
@@ -76,6 +78,7 @@ export interface Team {
   description: string
   lead_user_id: string | null
   member_ids: string[]
+  project_count: number
   open_tasks: number
   total_tasks: number
 }

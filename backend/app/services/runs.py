@@ -41,7 +41,7 @@ def run_context(db: Session, run: ReportRun, company: Company) -> ReportContext:
     return ReportContext(
         db=db, start=run.period_start, end=run.period_end, today=company_today(company.timezone),
         scope_user_ids=[uuid.UUID(u) for u in run.scope_user_ids] if run.scope_user_ids is not None else None,
-        project_id=_uuid(run.params.get("project")), user_id=_uuid(run.params.get("user")),
+        project_id=_uuid(run.params.get("project")), user_id=_uuid(run.params.get("user")), team_id=_uuid(run.params.get("team")),
         client_id=_uuid(tpl["client_id"]) if tpl else None,
         include_people=not client_audience,
     )

@@ -14,7 +14,7 @@ router = APIRouter(tags=["dashboard"])
 
 @router.get("/dashboard")
 def get_dashboard(
-    project: uuid.UUID | None = None, user: uuid.UUID | None = None,
+    project: uuid.UUID | None = None, user: uuid.UUID | None = None, team: uuid.UUID | None = None,
     from_: date | None = Query(default=None, alias="from"), to: date | None = None,
     ctx: Ctx = Depends(require("dashboard.view")),
 ):
@@ -31,4 +31,4 @@ def get_dashboard(
         uids, owned_only = [user], True  # someone outside my scope: only their work inside projects I own
     widen = bool(owned) and visible is not None and user is None
     return dashboard(ctx.db, ctx.company_id, ctx.me.id, uids, project, start, end, today, owned=owned,
-                     owned_only=owned_only, widen=widen, status_uids=status_uids)
+                     owned_only=owned_only, widen=widen, status_uids=status_uids, team=team)

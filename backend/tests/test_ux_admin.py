@@ -57,25 +57,39 @@ def test_new_people_get_team_member_without_the_ai_assistant(org):
     assert "assistant.use" not in new.get("/me").json()["permissions"]
 
 
-# ------------------------------------------------------------------ teams as departments + team tasks
-def test_teams_have_a_description_and_tasks_belong_to_a_team(work):
+# ------------------------------------------------------------------ teams as departments: a team belongs to a PROJECT, its tasks inherit it
+def test_a_team_belongs_to_a_project_and_its_tasks_inherit_it(work):
     t = work.admin.post("/teams", {"name": "Design", "description": "UI and brand", "lead_user_id": work.lead.user_id}).json()
-    assert t["description"] == "UI and brand" and t["open_tasks"] == 0
-    task = work.mgr.post("/tasks", {"project_id": work.project["id"], "title": "Logo refresh", "team_id": t["id"], "assignee_ids": [work.m1.user_id]}).json()
-    assert task["team_id"] == t["id"] and task["team_name"] == "Design"
-    assert work.mgr.post("/tasks", {"project_id": work.project["id"], "title": "x", "team_id": "00000000-0000-0000-0000-000000000000"}).json()["code"] == "invalid_team"
-    teams = {x["name"]: x for x in work.admin.get("/teams").json()["items"]}
-    assert teams["Design"]["open_tasks"] == 1 and teams["Design"]["total_tasks"] == 1
-    assert [x["title"] for x in work.mgr.get("/tasks", params={"team": t["id"]}).json()["items"]] == ["Logo refresh"]
-    # change it later: an activity note records who moved it where
-    t2 = work.admin.post("/teams", {"name": "QA"}).json()
-    moved = work.mgr.patch(f"/tasks/{task['id']}", {"team_id": t2["id"]}).json()
-    assert moved["team_name"] == "QA"
-    notes = [c["body"] for c in work.mgr.get(f"/tasks/{task['id']}/comments").json()["items"] if c["kind"] == "system"]
-    assert any("assigned this task to the team **QA**" in n for n in notes)
-    assert work.mgr.patch(f"/tasks/{task['id']}", {"team_id": None}).json()["team_id"] is None
-    patched = work.admin.patch(f"/teams/{t['id']}", {"description": "Product design"}).json()
-    assert patched["description"] == "Product design"
+    assert t["description"] == "UI and brand" and t["open_tasks"] == 0 and t["project_count"] == 0
+    p = work.admin.patch(f"/projects/{work.project['id']}", {"team_id": t["id"]}).json()
+    assert p["team_id"] == t["id"] and p["team_name"] == "Design"
+    created = work.admin.post("/projects", {"name": "Brand site", "team_id": t["id"]}).json()
+    assert created["team_name"] == "Design"
+    assert work.admin.post("/projects", {"name": "Bad", "team_id": "00000000-0000-0000-0000-000000000000"}).json()["code"] == "invalid_team"
+    # no team field on tasks any more: the task shows the team of its project
+    assert work.mgr.post("/tasks", {"project_id": work.project["id"], "title": "Logo refresh", "assignee_ids": [work.m1.user_id]}).json()["team_name"] == "Design"
+    tasks = work.mgr.get("/tasks", params={"team": t["id"]}).json()["items"]
+    assert {x["project_name"] for x in tasks} == {"Apollo"} and "Logo refresh" in {x["title"] for x in tasks}
+    assert work.mgr.get("/tasks", params={"team": work.admin.post("/teams", {"name": "QA"}).json()["id"]}).json()["items"] == []
+    team = next(x for x in work.admin.get("/teams").json()["items"] if x["name"] == "Design")
+    assert team["project_count"] == 2 and team["total_tasks"] == len(tasks) and team["open_tasks"] >= 1
+    # filter projects by team, and search them by team name
+    assert [x["name"] for x in work.admin.get("/projects", params={"team": t["id"]}).json()["items"]] == ["Apollo", "Brand site"]
+    assert [x["name"] for x in work.admin.get("/projects", params={"q": "design"}).json()["items"]] == ["Apollo", "Brand site"]
+    # clearing it
+    assert work.admin.patch(f"/projects/{work.project['id']}", {"team_id": None}).json()["team_id"] is None
+
+
+def test_team_filter_on_dashboard_and_reports(work):
+    t = work.admin.post("/teams", {"name": "Design"}).json()
+    work.admin.patch(f"/projects/{work.hermes['id']}", {"team_id": t["id"]})  # only Hermes belongs to Design
+    full = work.admin.get("/dashboard").json()
+    only = work.admin.get("/dashboard", params={"team": t["id"]}).json()
+    assert only["total_hours"] == 1 and full["total_hours"] == 10  # Hermes logged 1h, everything else 9h
+    rep = work.admin.get("/reports/visibility", params={"team": t["id"]}).json()["figures"]
+    assert [p["name"] for p in rep["projects"]] == ["Hermes"]
+    weekly = work.admin.get("/reports/weekly", params={"team": t["id"]}).json()["figures"]
+    assert {p["project"] for p in weekly.get("by_project", [])} <= {"Hermes"}
 
 
 # ------------------------------------------------------------------ search

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from './api'
-import type { Page, UserLite } from './types'
+import type { Page, Team, UserLite } from './types'
 
 export const SEARCH_MIN = 3
 
@@ -20,4 +20,8 @@ export function useSearch(delay = 300) {
 
 export function useUsers() {
   return useQuery({ queryKey: ['users', 'all'], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200 }) }).data?.items ?? []
+}
+
+export function useTeams() {
+  return useQuery({ queryKey: ['teams', ''], queryFn: () => api.get<{ items: Team[] }>('/teams') }).data?.items ?? []
 }

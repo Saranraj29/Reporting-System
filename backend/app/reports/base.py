@@ -19,6 +19,7 @@ class ReportContext:
     project_id: uuid.UUID | None = None
     user_id: uuid.UUID | None = None
     client_id: uuid.UUID | None = None
+    team_id: uuid.UUID | None = None  # only the projects of this team
     include_people: bool = True  # False for client-facing reports: no names, no individual figures
 
     @property
@@ -32,7 +33,7 @@ class ReportContext:
     @property
     def params(self) -> dict:
         return {
-            "uids": self.uids, "project": self.project_id, "client": self.client_id,
+            "uids": self.uids, "project": self.project_id, "client": self.client_id, "team": self.team_id,
             "from": self.start, "to": self.end, "today": self.today,
         }
 

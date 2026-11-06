@@ -73,23 +73,23 @@ def list_reports(ctx: Ctx = Depends(get_ctx)):
     return {"items": items}
 
 
-def _build_context(ctx: Ctx, d, start: date | None, end: date | None, project, user) -> ReportContext:
+def _build_context(ctx: Ctx, d, start: date | None, end: date | None, project, user, team=None) -> ReportContext:
     today = company_today(ctx.company.timezone)
     d_start, d_end = d.default_period(today)
     start, end = start or d_start, end or d_end
     if end < start or (end - start).days > 400:
         raise bad_request("invalid_range", "Choose a valid date range of at most 400 days")
     uids = effective_user_ids(ctx.visible(d.required_permission), user)
-    return ReportContext(db=ctx.db, start=start, end=end, today=today, scope_user_ids=uids, project_id=project)
+    return ReportContext(db=ctx.db, start=start, end=end, today=today, scope_user_ids=uids, project_id=project, team_id=team)
 
 
 @router.get("/reports/{key}")
 def get_report(
     key: str, from_: date | None = Query(default=None, alias="from"), to: date | None = None,
-    project: uuid.UUID | None = None, user: uuid.UUID | None = None, ctx: Ctx = Depends(get_ctx),
+    project: uuid.UUID | None = None, user: uuid.UUID | None = None, team: uuid.UUID | None = None, ctx: Ctx = Depends(get_ctx),
 ):
     d = _check_report_access(ctx, key)
-    rc = _build_context(ctx, d, from_, to, project, user)
+    rc = _build_context(ctx, d, from_, to, project, user, team)
     figures = d.query(rc)
     html = render_report_html(key, figures, ctx.company.name)
     return {"key": key, "title": d.title, "figures": figures, "html": html}
@@ -100,6 +100,7 @@ class ExportIn(BaseModel):
     to: date | None = None
     project: uuid.UUID | None = None
     user: uuid.UUID | None = None
+    team: uuid.UUID | None = None
 
 
 @router.post("/reports/{key}/export", status_code=202)
@@ -108,12 +109,12 @@ def export_report(key: str, body: ExportIn | None = None, format: str = "pdf", c
     if format not in FORMATS:
         raise bad_request("invalid_format", f"format must be one of {', '.join(FORMATS)}")
     body = body or ExportIn()
-    rc = _build_context(ctx, d, body.from_, body.to, body.project, body.user)
+    rc = _build_context(ctx, d, body.from_, body.to, body.project, body.user, body.team)
     run = ReportRun(
         company_id=ctx.company_id, report_key=key, period_start=rc.start, period_end=rc.end, requested_by=ctx.me.id,
         export_format=format, status="queued",
         scope_user_ids=None if rc.scope_user_ids is None else [str(u) for u in rc.scope_user_ids],
-        params={"project": str(body.project) if body.project else None, "user": str(body.user) if body.user else None},
+        params={"project": str(body.project) if body.project else None, "user": str(body.user) if body.user else None, "team": str(body.team) if body.team else None},
     )
     ctx.db.add(run)
     ctx.db.flush()

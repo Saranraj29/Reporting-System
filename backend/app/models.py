@@ -132,6 +132,7 @@ class Project(Base, Stamps):
     company_id: Mapped[uuid.UUID] = _cid()
     name: Mapped[str] = mapped_column(Text)
     client_id: Mapped[uuid.UUID | None] = _fk("clients", True, "SET NULL")
+    team_id: Mapped[uuid.UUID | None] = _fk("teams", True, "SET NULL")  # the team (department) that owns this project; its tasks inherit it
     status: Mapped[str] = mapped_column(Text, default="active")
     start_date: Mapped[date | None] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)
@@ -150,7 +151,6 @@ class Task(Base, Stamps):
     id: Mapped[uuid.UUID] = _pk()
     company_id: Mapped[uuid.UUID] = _cid()
     project_id: Mapped[uuid.UUID] = _fk("projects")
-    team_id: Mapped[uuid.UUID | None] = _fk("teams", True, "SET NULL")  # the department the task belongs to
     created_by: Mapped[uuid.UUID | None] = _fk("users", True, "SET NULL")
     title: Mapped[str] = mapped_column(Text)
     description: Mapped[str] = mapped_column(Text, default="")

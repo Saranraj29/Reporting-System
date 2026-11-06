@@ -148,11 +148,11 @@ export default function Tasks() {
 export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () => void }) {
   const qc = useQueryClient()
   const { me } = useAuth()
-  const { projects, users, fields, teams } = useLookups()
+  const { projects, users, fields } = useLookups()
   const defs = Object.fromEntries(fields.map((f) => [f.key, f]))
   const visible = (key: string) => defs[key]?.is_active !== false
   const [form, setForm] = useState({
-    project_id: task?.project_id ?? '', team_id: task?.team_id ?? '', title: task?.title ?? '', description: task?.description ?? '', activity_type: task?.activity_type ?? 'Development',
+    project_id: task?.project_id ?? '', title: task?.title ?? '', description: task?.description ?? '', activity_type: task?.activity_type ?? 'Development',
     priority: task?.priority ?? 'medium', status: task?.status ?? 'todo', eta_hours: task?.eta_hours?.toString() ?? '', start_date: task?.start_date ?? '', due_date: task?.due_date ?? '',
   })
   const [assignees, setAssignees] = useState<UserLite[]>([])
@@ -165,7 +165,7 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
   const save = useMutation({
     mutationFn: async () => {
       const body: Record<string, unknown> = {
-        project_id: form.project_id, team_id: form.team_id || null, title: form.title, description: form.description, activity_type: form.activity_type, priority: form.priority, status: form.status,
+        project_id: form.project_id, title: form.title, description: form.description, activity_type: form.activity_type, priority: form.priority, status: form.status,
         eta_hours: form.eta_hours === '' ? null : Number(form.eta_hours), start_date: form.start_date || null, due_date: form.due_date || null, custom_fields: custom,
       }
       if (task) {
@@ -193,14 +193,9 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
             <TextField label="Title" fullWidth required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </Grid>
           <Grid item xs={12} md={4}>
-            <TextField select label="Project" fullWidth required value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })}>
+            <TextField select label="Project" fullWidth required value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })}
+              helperText={form.project_id && projects.find((p) => p.id === form.project_id)?.team_name ? `Team: ${projects.find((p) => p.id === form.project_id)?.team_name} (from the project)` : ' '}>
               {projects.filter((p) => p.status !== 'archived').map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
-            </TextField>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <TextField select label="Team (department)" fullWidth value={form.team_id} onChange={(e) => setForm({ ...form, team_id: e.target.value })} helperText="Which team this task belongs to">
-              <MenuItem value="">No team</MenuItem>
-              {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
             </TextField>
           </Grid>
           {visible('description') && (

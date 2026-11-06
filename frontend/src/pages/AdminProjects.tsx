@@ -2,10 +2,11 @@ import AddIcon from '@mui/icons-material/Add'
 import { Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { Empty, ErrorAlert, PageHeader, SearchBox } from '../components/ui'
 import { fmtDate, titleCase } from '../format'
-import { useSearch, useUsers } from '../hooks'
+import { useSearch, useTeams, useUsers } from '../hooks'
 import type { Client, Page, Project, UserLite } from '../types'
 
 export default function AdminProjects() {
@@ -20,22 +21,25 @@ export default function AdminProjects() {
 function Projects() {
   const qc = useQueryClient()
   const search = useSearch()
-  const projects = useQuery({ queryKey: ['projects', 'admin', search.term], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200, q: search.term }), placeholderData: keepPreviousData })
+  const teams = useTeams()
+  const [params] = useSearchParams()  // /admin/projects?team=<id> comes from the Teams page
+  const [teamFilter, setTeamFilter] = useState(params.get('team') ?? '')
+  const projects = useQuery({ queryKey: ['projects', 'admin', search.term, teamFilter], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200, q: search.term, team: teamFilter }), placeholderData: keepPreviousData })
   const clients = useQuery({ queryKey: ['clients'], queryFn: () => api.get<Page<Client>>('/clients', { limit: 200 }) })
   const users = useUsers()
   const [dlg, setDlg] = useState<Project | 'new' | null>(null)
-  const [f, setF] = useState({ name: '', client_id: '', status: 'active', start_date: '', end_date: '' })
+  const [f, setF] = useState({ name: '', client_id: '', team_id: '', status: 'active', start_date: '', end_date: '' })
   const [members, setMembers] = useState<UserLite[]>([])
   const [owners, setOwners] = useState<UserLite[]>([])
   const open = (p: Project | 'new') => {
     setDlg(p)
-    setF(p === 'new' ? { name: '', client_id: '', status: 'active', start_date: '', end_date: '' } : { name: p.name, client_id: p.client_id ?? '', status: p.status, start_date: p.start_date ?? '', end_date: p.end_date ?? '' })
+    setF(p === 'new' ? { name: '', client_id: '', team_id: '', status: 'active', start_date: '', end_date: '' } : { name: p.name, client_id: p.client_id ?? '', team_id: p.team_id ?? '', status: p.status, start_date: p.start_date ?? '', end_date: p.end_date ?? '' })
     setMembers(p === 'new' ? [] : users.filter((u) => p.member_ids.includes(u.id) && !p.owner_ids.includes(u.id)))
     setOwners(p === 'new' ? [] : users.filter((u) => p.owner_ids.includes(u.id)))
   }
   const save = useMutation({
     mutationFn: async () => {
-      const body = { ...f, client_id: f.client_id || null, start_date: f.start_date || null, end_date: f.end_date || null }
+      const body = { ...f, client_id: f.client_id || null, team_id: f.team_id || null, start_date: f.start_date || null, end_date: f.end_date || null }
       const p = dlg === 'new' ? await api.post<Project>('/projects', body) : await api.patch<Project>(`/projects/${(dlg as Project).id}`, body)
       await api.put(`/projects/${p.id}/members`, { user_ids: members.map((m) => m.id), owner_ids: owners.map((m) => m.id) })
     },
@@ -44,16 +48,23 @@ function Projects() {
   return (
     <>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2 }} justifyContent="space-between">
-        <SearchBox value={search.input} onChange={search.setInput} placeholder="Search projects or clients" />
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+          <SearchBox value={search.input} onChange={search.setInput} placeholder="Search projects, clients or teams" />
+          <TextField select size="small" label="Team" value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} sx={{ minWidth: 170 }}>
+            <MenuItem value="">All teams</MenuItem>
+            {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+          </TextField>
+        </Stack>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => open('new')}>New project</Button>
       </Stack>
       <Paper sx={{ overflow: 'hidden' }}>
         <Table>
-          <TableHead><TableRow><TableCell>Project</TableCell><TableCell>Client</TableCell><TableCell>Status</TableCell><TableCell>Dates</TableCell><TableCell>Owners</TableCell><TableCell>Members</TableCell></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>Project</TableCell><TableCell>Team</TableCell><TableCell>Client</TableCell><TableCell>Status</TableCell><TableCell>Dates</TableCell><TableCell>Owners</TableCell><TableCell>Members</TableCell></TableRow></TableHead>
           <TableBody>
             {projects.data?.items.map((p) => (
               <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} onClick={() => open(p)}>
                 <TableCell sx={{ fontWeight: 600 }}>{p.name}</TableCell>
+                <TableCell>{p.team_name ?? '—'}</TableCell>
                 <TableCell>{p.client_name ?? '—'}</TableCell>
                 <TableCell><Chip size="small" label={titleCase(p.status)} color={p.status === 'active' ? 'success' : 'default'} variant="outlined" /></TableCell>
                 <TableCell>{fmtDate(p.start_date)} – {fmtDate(p.end_date)}</TableCell>
@@ -71,6 +82,9 @@ function Projects() {
           <DialogContent dividers>
             <Stack spacing={2} sx={{ pt: 0.5 }}>
               <TextField label="Name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
+              <TextField select fullWidth label="Team" value={f.team_id} onChange={(e) => setF({ ...f, team_id: e.target.value })} helperText="Every task in this project belongs to this team">
+                <MenuItem value="">No team</MenuItem>{teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+              </TextField>
               <Stack direction="row" spacing={2}>
                 <TextField select fullWidth label="Client" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}><MenuItem value="">Internal</MenuItem>{clients.data?.items.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}</TextField>
                 <TextField select fullWidth label="Status" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>{['active', 'on_hold', 'completed', 'archived'].map((s) => <MenuItem key={s} value={s}>{titleCase(s)}</MenuItem>)}</TextField>

@@ -16,6 +16,7 @@ from ..models import (
     Project,
     ProjectMember,
     TaskFieldDefinition,
+    Team,
     User,
 )
 from ..security import decrypt, encrypt
@@ -29,6 +30,7 @@ router = APIRouter(tags=["setup"])
 class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     client_id: uuid.UUID | None = None
+    team_id: uuid.UUID | None = None
     status: str = Field(default="active", pattern="^(active|on_hold|completed|archived)$")
     start_date: date | None = None
     end_date: date | None = None
@@ -37,15 +39,17 @@ class ProjectIn(BaseModel):
 class ProjectPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     client_id: uuid.UUID | None = None
+    team_id: uuid.UUID | None = None
     status: str | None = Field(default=None, pattern="^(active|on_hold|completed|archived)$")
     start_date: date | None = None
     end_date: date | None = None
 
 
-def _project_out(p: Project, client_name: str | None = None, members: list[str] | None = None, owners: list[str] | None = None) -> dict:
+def _project_out(p: Project, client_name: str | None = None, members: list[str] | None = None, owners: list[str] | None = None,
+                 team_name: str | None = None) -> dict:
     return {
         "id": str(p.id), "name": p.name, "client_id": str(p.client_id) if p.client_id else None,
-        "client_name": client_name, "status": p.status,
+        "client_name": client_name, "status": p.status, "team_id": str(p.team_id) if p.team_id else None, "team_name": team_name,
         "start_date": p.start_date.isoformat() if p.start_date else None,
         "end_date": p.end_date.isoformat() if p.end_date else None,
         "member_ids": members or [], "owner_ids": owners or [],
@@ -67,24 +71,36 @@ def _check_client(ctx: Ctx, client_id: uuid.UUID | None) -> None:
         raise bad_request("invalid_client", "Client does not exist")
 
 
+def _check_team(ctx: Ctx, team_id: uuid.UUID | None) -> None:
+    if team_id and not ctx.db.get(Team, team_id):
+        raise bad_request("invalid_team", "Team does not exist")
+
+
+def _team_name(ctx: Ctx, team_id: uuid.UUID | None) -> str | None:
+    return ctx.db.execute(select(Team.name).where(Team.id == team_id)).scalar_one_or_none() if team_id else None
+
+
 @router.get("/projects")
 def list_projects(
-    status: str | None = None, client_id: uuid.UUID | None = None, q: str | None = None,
+    status: str | None = None, client_id: uuid.UUID | None = None, team: uuid.UUID | None = None, q: str | None = None,
     ctx: Ctx = Depends(get_ctx), page: Page = Depends(pagination),
 ):
-    stmt = select(Project, Client.name).outerjoin(Client, Client.id == Project.client_id).order_by(Project.name)
+    stmt = (select(Project, Client.name, Team.name).outerjoin(Client, Client.id == Project.client_id)
+            .outerjoin(Team, Team.id == Project.team_id).order_by(Project.name))
     if status:
         stmt = stmt.where(Project.status == status)
     if client_id:
         stmt = stmt.where(Project.client_id == client_id)
+    if team:
+        stmt = stmt.where(Project.team_id == team)
     if q:
-        stmt = stmt.where(Project.name.ilike(f"%{q}%") | Client.name.ilike(f"%{q}%"))
+        stmt = stmt.where(Project.name.ilike(f"%{q}%") | Client.name.ilike(f"%{q}%") | Team.name.ilike(f"%{q}%"))
     total = ctx.db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar_one()
     rows = ctx.db.execute(stmt.limit(page.limit).offset(page.offset)).all()
-    ids = [p.id for p, _ in rows]
+    ids = [p.id for p, _, _ in rows]
     members, owners = _members(ctx, ids), _members(ctx, ids, owners_only=True)
     return {
-        "items": [_project_out(p, cn, members.get(p.id), owners.get(p.id)) for p, cn in rows],
+        "items": [_project_out(p, cn, members.get(p.id), owners.get(p.id), tn) for p, cn, tn in rows],
         "total": total, "page": page.page, "limit": page.limit,
     }
 
@@ -92,12 +108,13 @@ def list_projects(
 @router.post("/projects", status_code=201)
 def create_project(body: ProjectIn, ctx: Ctx = Depends(require("project.manage"))):
     _check_client(ctx, body.client_id)
+    _check_team(ctx, body.team_id)
     if ctx.db.execute(select(Project.id).where(func.lower(Project.name) == body.name.lower())).first():
         raise conflict("project_exists", "A project with this name already exists")
     p = Project(company_id=ctx.company_id, **body.model_dump())
     ctx.db.add(p)
     ctx.db.commit()
-    return _project_out(p)
+    return _project_out(p, team_name=_team_name(ctx, p.team_id))
 
 
 @router.patch("/projects/{project_id}")
@@ -108,12 +125,14 @@ def patch_project(project_id: uuid.UUID, body: ProjectPatch, ctx: Ctx = Depends(
     data = body.model_dump(exclude_unset=True)
     if data.get("client_id"):
         _check_client(ctx, data["client_id"])
+    if data.get("team_id"):
+        _check_team(ctx, data["team_id"])
     for k, v in data.items():
         if k in ("name", "status") and v is None:
             continue
         setattr(p, k, v)
     ctx.db.commit()
-    return _project_out(p, members=_members(ctx, [p.id]).get(p.id), owners=_members(ctx, [p.id], owners_only=True).get(p.id))
+    return _project_out(p, members=_members(ctx, [p.id]).get(p.id), owners=_members(ctx, [p.id], owners_only=True).get(p.id), team_name=_team_name(ctx, p.team_id))
 
 
 class ProjectMembersIn(BaseModel):

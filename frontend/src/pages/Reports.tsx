@@ -10,6 +10,7 @@ import { Link as RouterLink, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Empty, ErrorAlert, PageHeader, ReportFrame, RunStatusChip } from '../components/ui'
 import { fmtDate, fmtDateTime } from '../format'
+import { useTeams } from '../hooks'
 import type { Page, Project, ReportInfo, RunDetail, RunSummary, UserLite } from '../types'
 
 export default function Reports() {
@@ -19,6 +20,8 @@ export default function Reports() {
   const [range, setRange] = useState<{ from: string; to: string } | null>(null)
   const [project, setProject] = useState('')
   const [person, setPerson] = useState('')
+  const [team, setTeam] = useState('')
+  const teams = useTeams()
   const users = useQuery({ queryKey: ['users', 'all'], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200 }) })
   const info = list.data?.items[tab]
   useEffect(() => {
@@ -26,14 +29,14 @@ export default function Reports() {
   }, [info?.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const report = useQuery({
-    queryKey: ['report', info?.key, range, project, person],
-    queryFn: () => api.get<{ html: string; figures: Record<string, any> }>(`/reports/${info!.key}`, { from: range!.from, to: range!.to, project, user: person }),
+    queryKey: ['report', info?.key, range, project, person, team],
+    queryFn: () => api.get<{ html: string; figures: Record<string, any> }>(`/reports/${info!.key}`, { from: range!.from, to: range!.to, project, user: person, team }),
     enabled: !!info && !!range,
     placeholderData: keepPreviousData, // old report stays visible while the new one loads
   })
   const [exportId, setExportId] = useState<string | null>(null)
   const exp = useMutation({
-    mutationFn: (format: string) => api.post<{ id: string }>(`/reports/${info!.key}/export`, { from: range!.from, to: range!.to, project: project || null, user: person || null }, { format }),
+    mutationFn: (format: string) => api.post<{ id: string }>(`/reports/${info!.key}/export`, { from: range!.from, to: range!.to, project: project || null, user: person || null, team: team || null }, { format }),
     onSuccess: (r) => setExportId(r.id),
   })
   const recent = useQuery({ queryKey: ['report-runs', 'export'], queryFn: () => api.get<Page<RunSummary>>('/report-runs', { kind: 'export', limit: 8 }), refetchInterval: 5000 })
@@ -58,6 +61,12 @@ export default function Reports() {
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
           <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={range?.from ?? ''} onChange={(e) => setRange({ from: e.target.value, to: range?.to ?? e.target.value })} />
           <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={range?.to ?? ''} onChange={(e) => setRange({ from: range?.from ?? e.target.value, to: e.target.value })} />
+          {teams.length > 0 && (
+            <TextField select size="small" label="Team" value={team} onChange={(e) => setTeam(e.target.value)} sx={{ minWidth: 160 }}>
+              <MenuItem value="">All teams</MenuItem>
+              {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+            </TextField>
+          )}
           <TextField select size="small" label="Project" value={project} onChange={(e) => setProject(e.target.value)} sx={{ minWidth: 180 }}>
             <MenuItem value="">All projects</MenuItem>
             {projects.data?.items.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}

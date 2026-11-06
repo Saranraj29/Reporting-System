@@ -9,7 +9,10 @@ from .base import ReportContext
 
 _TASK_SCOPE = "(CAST(:uids AS uuid[]) IS NULL OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ANY(CAST(:uids AS uuid[]))))"
 _PROJ = "(CAST(:project AS uuid) IS NULL OR t.project_id = CAST(:project AS uuid))"
-_CLIENT = "(CAST(:client AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE client_id = CAST(:client AS uuid)))"
+_CLIENT = (  # client AND team filters (both optional): the projects of one client / one team
+    "(CAST(:client AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE client_id = CAST(:client AS uuid)))"
+    " AND (CAST(:team AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE team_id = CAST(:team AS uuid)))"
+)
 TASK_FILTER = f"{_TASK_SCOPE} AND {_PROJ} AND {_CLIENT}"
 TIME_FILTER = "(CAST(:uids AS uuid[]) IS NULL OR e.user_id = ANY(CAST(:uids AS uuid[])))"
 

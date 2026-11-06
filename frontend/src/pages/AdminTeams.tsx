@@ -34,7 +34,7 @@ export default function AdminTeams() {
   const name = (id: string | null) => users.find((u) => u.id === id)?.name
   return (
     <>
-      <PageHeader title="Teams" subtitle="A team works like a department: tasks can be assigned to a team, and team leads see their team's work" />
+      <PageHeader title="Teams" subtitle="A team works like a department: you give a team to a project when you create it, and the project's tasks belong to that team" />
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2 }} justifyContent="space-between">
         <SearchBox value={search.input} onChange={search.setInput} placeholder="Search teams" />
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => open('new')}>New team</Button>
@@ -49,9 +49,10 @@ export default function AdminTeams() {
                 <Typography variant="caption" color="text.secondary">Lead: {name(t.lead_user_id) ?? '—'} · {t.member_ids.length} member{t.member_ids.length === 1 ? '' : 's'}</Typography>
               </div>
               <Stack direction="row" spacing={1} alignItems="center" onClick={(e) => e.stopPropagation()}>
-                <Chip size="small" label={`${t.open_tasks} open`} color={t.open_tasks ? 'primary' : 'default'} variant="outlined" />
-                <Chip size="small" label={`${t.total_tasks} total tasks`} variant="outlined" />
-                <Button size="small" component={RouterLink} to={`/tasks?team=${t.id}`}>View tasks</Button>
+                <Chip size="small" label={`${t.project_count} project${t.project_count === 1 ? '' : 's'}`} variant="outlined" />
+                <Chip size="small" label={`${t.open_tasks} open task${t.open_tasks === 1 ? '' : 's'}`} color={t.open_tasks ? 'primary' : 'default'} variant="outlined" />
+                <Button size="small" component={RouterLink} to={`/admin/projects?team=${t.id}`}>Projects</Button>
+                <Button size="small" component={RouterLink} to={`/tasks?team=${t.id}`}>Tasks</Button>
               </Stack>
             </Stack>
           </Paper>

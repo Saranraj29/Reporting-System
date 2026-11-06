@@ -13,6 +13,7 @@ import { useAuth } from '../auth'
 import { Empty, ErrorAlert, PageHeader, PriorityChip, StatCard } from '../components/ui'
 import { daysAgo, fmtShort, hours, today } from '../format'
 import { CHART, STATUS_COLORS, STATUS_LABELS } from '../theme'
+import { useTeams } from '../hooks'
 import type { Dashboard as DashboardData, Page, Project, UserLite } from '../types'
 
 function Card({ title, children, height }: { title: string; children: React.ReactNode; height?: number }) {
@@ -30,14 +31,16 @@ export default function Dashboard() {
   const { hasAny, me } = useAuth()
   const [range, setRange] = useState(30)
   const [project, setProject] = useState('')
+  const [team, setTeam] = useState('')
+  const teams = useTeams()
   const [user, setUser] = useState('')
   const multiUser = hasAny('dashboard.view') && (me?.permissions ?? []).some((p) => p === 'dashboard.view.team' || p === 'dashboard.view.all')
 
   const projects = useQuery({ queryKey: ['projects', 'all'], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200 }) })
   const users = useQuery({ queryKey: ['users', 'all'], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200 }), enabled: multiUser })
   const q = useQuery({
-    queryKey: ['dashboard', range, project, user],
-    queryFn: () => api.get<DashboardData>('/dashboard', { from: daysAgo(range - 1), to: today(), project, user }),
+    queryKey: ['dashboard', range, project, user, team],
+    queryFn: () => api.get<DashboardData>('/dashboard', { from: daysAgo(range - 1), to: today(), project, user, team }),
     placeholderData: keepPreviousData, // keep the old numbers on screen while a filter change loads: no flicker
   })
   const d = q.data
@@ -57,6 +60,12 @@ export default function Dashboard() {
               <MenuItem value={30}>Last 30 days</MenuItem>
               <MenuItem value={90}>Last 90 days</MenuItem>
             </TextField>
+            {teams.length > 0 && (
+              <TextField select size="small" label="Team" value={team} onChange={(e) => setTeam(e.target.value)} sx={{ minWidth: 150 }}>
+                <MenuItem value="">All teams</MenuItem>
+                {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+              </TextField>
+            )}
             <TextField select size="small" label="Project" value={project} onChange={(e) => setProject(e.target.value)} sx={{ minWidth: 150 }}>
               <MenuItem value="">All projects</MenuItem>
               {projects.data?.items.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}

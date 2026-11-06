@@ -39,21 +39,22 @@ TASK_ACTIVE_IN_PERIOD = "t.created_at::date <= :to AND (t.completed_at IS NULL O
 def dashboard(
     db: Session, company_id: uuid.UUID, me: uuid.UUID, uids: list[uuid.UUID] | None, project: uuid.UUID | None,
     start: date, end: date, today: date, *, owned: list[uuid.UUID] | None = None, owned_only: bool = False,
-    widen: bool = False, status_uids: list[uuid.UUID] | None | str = "same",
+    widen: bool = False, status_uids: list[uuid.UUID] | None | str = "same", team: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """`owned` = projects I own. `widen`: owners also see everything inside them; `owned_only`: a person filter outside
     my scope is honoured only within my owned projects. Daily-status text is never widened (`status_uids`)."""
     owned = owned or []
     s_uids = uids if status_uids == "same" else status_uids
     key = (company_id, me, tuple(uids) if uids is not None else None, project, start, end, today, tuple(owned), owned_only, widen,
-           tuple(s_uids) if isinstance(s_uids, list) else s_uids)
+           tuple(s_uids) if isinstance(s_uids, list) else s_uids, team)
     hit = _CACHE.get(key)
     now = time.monotonic()
     if hit and hit[0] > now:
         return hit[1]
     p = {"uids": uids, "project": project, "from": start, "to": end, "today": today,
-         "owned": owned, "owned_only": owned_only, "widen": widen, "status_uids": s_uids}
-    proj_t = "(CAST(:project AS uuid) IS NULL OR t.project_id = CAST(:project AS uuid))"
+         "owned": owned, "owned_only": owned_only, "widen": widen, "status_uids": s_uids, "team": team}
+    proj_t = ("(CAST(:project AS uuid) IS NULL OR t.project_id = CAST(:project AS uuid)) AND "
+              "(CAST(:team AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE team_id = CAST(:team AS uuid)))")
 
     # 1) tasks ------------------------------------------------------------------------------
     counts = db.execute(

@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, select, text
 from ..config import get_settings
 from ..deps import Ctx, Page, get_ctx, paged, pagination, require, require_any
 from ..errors import bad_request, conflict, not_found
-from ..models import Permission, Role, RolePermission, Task, Team, TeamMember, User, UserRole
+from ..models import Permission, Project, Role, RolePermission, Task, Team, TeamMember, User, UserRole
 from ..perms import PERMISSIONS
 from ..security import hash_password, make_email_token
 from ..services import mail
@@ -359,12 +359,17 @@ def _team_out(ctx: Ctx, teams: list[Team]) -> list[dict]:
     members: dict[uuid.UUID, list[str]] = {}
     for tid, uid in ctx.db.execute(select(TeamMember.team_id, TeamMember.user_id).where(TeamMember.team_id.in_([t.id for t in teams]))):
         members.setdefault(tid, []).append(str(uid))
-    open_tasks = dict(ctx.db.execute(
-        select(Task.team_id, func.count()).where(Task.team_id.in_([t.id for t in teams]), Task.status != "done").group_by(Task.team_id)).all())
-    all_tasks = dict(ctx.db.execute(select(Task.team_id, func.count()).where(Task.team_id.in_([t.id for t in teams])).group_by(Task.team_id)).all())
+    ids = [t.id for t in teams]
+    # a team's tasks are the tasks of its projects
+    open_tasks = dict(ctx.db.execute(select(Project.team_id, func.count(Task.id)).join(Task, Task.project_id == Project.id)
+                                     .where(Project.team_id.in_(ids), Task.status != "done").group_by(Project.team_id)).all())
+    all_tasks = dict(ctx.db.execute(select(Project.team_id, func.count(Task.id)).join(Task, Task.project_id == Project.id)
+                                    .where(Project.team_id.in_(ids)).group_by(Project.team_id)).all())
+    project_counts = dict(ctx.db.execute(select(Project.team_id, func.count()).where(Project.team_id.in_(ids)).group_by(Project.team_id)).all())
     return [
         {"id": str(t.id), "name": t.name, "description": t.description, "lead_user_id": str(t.lead_user_id) if t.lead_user_id else None,
-         "member_ids": members.get(t.id, []), "open_tasks": open_tasks.get(t.id, 0), "total_tasks": all_tasks.get(t.id, 0)}
+         "member_ids": members.get(t.id, []), "project_count": project_counts.get(t.id, 0),
+         "open_tasks": open_tasks.get(t.id, 0), "total_tasks": all_tasks.get(t.id, 0)}
         for t in teams
     ]
 
