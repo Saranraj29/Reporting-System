@@ -42,9 +42,9 @@ _REPORTS_TEAM = [f"report.{r}.view.team" for r in ("weekly", "monthly", "perform
 DEFAULT_ROLE = "Team Member"
 
 SEEDED_ROLES: dict[str, tuple[str, list[str]]] = {
-    "Team Member": (
+    "Team Member": (  # the default role for everyone who joins: own work only, no AI assistant
         "Own tasks, hours and status",
-        ["task.view.own", "task.edit.own", "status.view.own", "dashboard.view.own", "assistant.use"],
+        ["task.view.own", "task.edit.own", "status.view.own", "dashboard.view.own"],
     ),
     "Team Lead": (
         "Team tasks, hours, weekly/monthly/performance reports for their team",

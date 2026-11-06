@@ -6,6 +6,8 @@ export interface Me {
   roles: { id: string; name: string }[]
   permissions: string[]
   owns_projects?: boolean
+  profile: { name: string; email: string; phone: string; job_title: string; location: string; bio: string }
+  prefs: { email_reminders: boolean; start_page: string; compact_tables: boolean }
 }
 export interface Page<T> {
   items: T[]
@@ -29,6 +31,8 @@ export interface Task {
   id: string
   project_id: string
   project_name: string
+  team_id: string | null
+  team_name: string | null
   title: string
   description: string
   activity_type: string
@@ -69,8 +73,11 @@ export interface Contact {
 export interface Team {
   id: string
   name: string
+  description: string
   lead_user_id: string | null
   member_ids: string[]
+  open_tasks: number
+  total_tasks: number
 }
 export interface TaskField {
   id: string

@@ -19,6 +19,7 @@ from ..models import (
     TaskAssignee,
     TaskComment,
     TaskFieldDefinition,
+    Team,
     TimeEntry,
     User,
 )
@@ -99,10 +100,13 @@ def _task_out(ctx: Ctx, tasks: list[Task]) -> list[dict]:
         ctx.db.execute(select(TimeEntry.task_id, func.sum(TimeEntry.hours)).where(TimeEntry.task_id.in_(ids)).group_by(TimeEntry.task_id)).all()
     )
     projects = dict(ctx.db.execute(select(Project.id, Project.name).where(Project.id.in_({t.project_id for t in tasks}))).all())
+    team_ids = {t.team_id for t in tasks if t.team_id}
+    teams = dict(ctx.db.execute(select(Team.id, Team.name).where(Team.id.in_(team_ids))).all()) if team_ids else {}
     today = company_today(ctx.company.timezone)
     return [
         {
             "id": str(t.id), "project_id": str(t.project_id), "project_name": projects.get(t.project_id),
+            "team_id": str(t.team_id) if t.team_id else None, "team_name": teams.get(t.team_id) if t.team_id else None,
             "title": t.title, "description": t.description, "activity_type": t.activity_type,
             "priority": t.priority, "status": t.status,
             "eta_hours": float(t.eta_hours) if t.eta_hours is not None else None,
@@ -176,7 +180,7 @@ def _check_assignees(ctx: Ctx, ids: list[uuid.UUID]) -> None:
 @router.get("/tasks")
 def list_tasks(
     project: uuid.UUID | None = None, assignee: uuid.UUID | None = None, status: str | None = None,
-    priority: str | None = None, due_from: date | None = None, due_to: date | None = None,
+    priority: str | None = None, due_from: date | None = None, due_to: date | None = None, team: uuid.UUID | None = None,
     q: str | None = None, overdue: bool | None = None, blocked: bool | None = None,
     ctx: Ctx = Depends(require("task.view")), page: Page = Depends(pagination),
 ):
@@ -188,6 +192,8 @@ def list_tasks(
         stmt = stmt.where(Task.project_id == project)
     if assignee:
         stmt = stmt.where(Task.id.in_(select(TaskAssignee.task_id).where(TaskAssignee.user_id == assignee)))
+    if team:
+        stmt = stmt.where(Task.team_id == team)
     if status:
         stmt = stmt.where(Task.status == status)
     if priority:
@@ -209,6 +215,7 @@ def list_tasks(
 
 class TaskIn(BaseModel):
     project_id: uuid.UUID
+    team_id: uuid.UUID | None = None
     title: str = Field(min_length=1, max_length=300)
     description: str = ""
     activity_type: str = "Development"
@@ -223,6 +230,7 @@ class TaskIn(BaseModel):
 
 class TaskPatch(BaseModel):
     project_id: uuid.UUID | None = None
+    team_id: uuid.UUID | None = None  # null clears it
     title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = None
     activity_type: str | None = None
@@ -266,8 +274,10 @@ def create_task(body: TaskIn, ctx: Ctx = Depends(require("task.edit"))):
     custom = validate_custom_fields(defs, body.custom_fields)
     assignees = body.assignee_ids or [ctx.me.id]
     _check_assignees(ctx, assignees)
+    if body.team_id and not ctx.db.get(Team, body.team_id):
+        raise bad_request("invalid_team", "Team does not exist")
     task = Task(
-        company_id=ctx.company_id, project_id=body.project_id, created_by=ctx.me.id, title=body.title.strip(),
+        company_id=ctx.company_id, project_id=body.project_id, team_id=body.team_id, created_by=ctx.me.id, title=body.title.strip(),
         description=body.description, activity_type=body.activity_type, priority=body.priority,
         eta_hours=body.eta_hours, start_date=body.start_date, due_date=body.due_date, custom_fields=custom,
     )
@@ -299,6 +309,12 @@ def patch_task(task_id: uuid.UUID, body: TaskPatch, ctx: Ctx = Depends(require("
         if not ctx.db.get(Project, data["project_id"]):
             raise bad_request("invalid_project", "Project does not exist")
         task.project_id = data["project_id"]
+    if "team_id" in data and data["team_id"] != task.team_id:
+        team = ctx.db.get(Team, data["team_id"]) if data["team_id"] else None
+        if data["team_id"] and team is None:
+            raise bad_request("invalid_team", "Team does not exist")
+        task.team_id = data["team_id"]
+        _note(ctx, task.id, f"assigned this task to the team **{team.name}**" if team else "removed the team from this task")
     old_priority, old_due = task.priority, task.due_date
     for k in ("title", "description", "activity_type", "priority", "eta_hours", "start_date", "due_date"):
         if k in data and not (data[k] is None and k in ("title", "activity_type", "priority", "description")):

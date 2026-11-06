@@ -1,4 +1,6 @@
-import { Alert, Avatar, AvatarGroup, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Tooltip, Typography } from '@mui/material'
+import CloseIcon from '@mui/icons-material/Close'
+import SearchIcon from '@mui/icons-material/Search'
+import { Alert, Avatar, AvatarGroup, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import type { ReactNode } from 'react'
 import { errorMessage } from '../api'
 import { initials, titleCase } from '../format'
@@ -110,4 +112,17 @@ export function ConfirmDialog({ open, title, body, confirmLabel = 'Confirm', onC
 /** Renders server-generated report HTML. Sandboxed: no scripts, same-origin access or navigation. */
 export function ReportFrame({ html, height = 760 }: { html: string; height?: number }) {
   return <Box component="iframe" title="Report preview" sandbox="" srcDoc={html} sx={{ width: '100%', height, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: '#fff' }} />
+}
+
+/** The search box used on every list: shows a hint until 3 characters are typed (that is when the search request is sent). */
+export function SearchBox({ value, onChange, placeholder = 'Search', width }: { value: string; onChange: (v: string) => void; placeholder?: string; width?: number | string }) {
+  const short = value.trim().length > 0 && value.trim().length < 3
+  return (
+    <TextField size="small" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} sx={{ width: width ?? { xs: '100%', sm: 320 } }}
+      inputProps={{ 'aria-label': placeholder, type: 'search' }} helperText={short ? 'Type at least 3 characters to search' : undefined}
+      InputProps={{
+        startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+        endAdornment: value ? <InputAdornment position="end"><IconButton size="small" aria-label="Clear search" onClick={() => onChange('')}><CloseIcon fontSize="small" /></IconButton></InputAdornment> : undefined,
+      }} />
+  )
 }

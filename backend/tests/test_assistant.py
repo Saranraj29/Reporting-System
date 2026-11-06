@@ -10,7 +10,13 @@ from app.ai import policy
 from app.ai.assistant import quick, tools
 from app.services import ai
 
-from .conftest import drain  # noqa: F401
+from .conftest import drain, grant_assistant_to_members  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def members_may_ask(work, owner_conn):
+    """The scope tests ask as plain Team Members, who do not have the assistant by default (see test_ux_admin)."""
+    grant_assistant_to_members(owner_conn)
 
 
 def sse(resp) -> list[tuple[str, dict]]:
@@ -57,7 +63,7 @@ def script(monkeypatch, steps, record=None):
 
 # ------------------------------------------------------------------ access, status, switches
 def test_every_role_may_use_the_assistant_but_a_removed_key_blocks_it(work, owner_conn):
-    for api in (work.admin, work.mgr, work.lead, work.m1):
+    for api in (work.admin, work.mgr, work.lead, work.m1):  # (m1 was granted it by the fixture above)
         assert api.get("/assistant/status?page=dashboard").status_code == 200
     owner_conn.execute("delete from role_permissions where permission_key = 'assistant.use'")
     from app.services.access import clear_permission_cache

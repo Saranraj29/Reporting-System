@@ -9,7 +9,7 @@ import pytest
 from app.services import ai
 from evals import runner
 
-from .conftest import drain
+from .conftest import drain, grant_assistant_to_members
 from .test_ai_reports import make_owner
 
 pytestmark = pytest.mark.eval
@@ -30,7 +30,8 @@ QUESTIONS = runner.load_cases("question")
 
 
 @pytest.mark.parametrize("case", QUESTIONS, ids=lambda c: c["id"])
-def test_question(case, work):
+def test_question(case, work, owner_conn):
+    grant_assistant_to_members(owner_conn)
     res = runner.run_question(case, work, runner.actors_for(work))
     RESULTS.append(res)
     assert not res.leak, res.problems  # a scope leak fails at once, whatever the thresholds say

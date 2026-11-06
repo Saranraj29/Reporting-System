@@ -70,13 +70,17 @@ def _enqueue_notify(db: Session, company_id, user: User, kind: str, subject: str
 
 
 # ------------------------------------------------------------------------------ notifications
+REMINDER_KINDS = {"morning_plan", "daily_missing", "due", "team_overdue"}
+
+
 @handler("notify")
 def notify(db: Session, job: Job) -> None:
     user = db.get(User, uuid.UUID(job.payload["user_id"]))
     if user is None or not user.is_active:
         return
     p = job.payload
-    deliver(db, job, _company(db, job), user, user.email, p["kind"], p["subject"], p["body"])
+    muted = p["kind"] in REMINDER_KINDS and (user.prefs or {}).get("email_reminders") is False  # the person turned reminder e-mails off
+    deliver(db, job, _company(db, job), user, None if muted else user.email, p["kind"], p["subject"], p["body"])
 
 
 @handler("notify.blocker")

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { useAuth } from '../auth'
+import { PasswordField } from '../components/PasswordField'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 
@@ -87,7 +88,7 @@ export function Login() {
       <form onSubmit={submit}>
         <Stack spacing={2}>
           <TextField label="Work email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required autoFocus />
-          <TextField label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          <PasswordField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
           {error && <Alert severity="error">{error}</Alert>}
           <Button type="submit" variant="contained" size="large" disabled={busy}>
             Sign in
@@ -176,7 +177,7 @@ export function Register() {
             </>
           )}
           {domain?.status === 'invite_required' && <Alert severity="warning">Personal email domains need an invite link from a company admin.</Alert>}
-          <TextField label="Password" type="password" helperText="At least 8 characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} inputProps={{ minLength: 8 }} required />
+          <PasswordField label="Password" helperText="At least 8 characters" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} inputProps={{ minLength: 8 }} required />
           {error && <Alert severity="error">{error}</Alert>}
           <Button type="submit" variant="contained" size="large">
             Create account
@@ -279,7 +280,7 @@ export function ResetPassword() {
           }}
         >
           <Stack spacing={2}>
-            <TextField label="New password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} inputProps={{ minLength: 8 }} required />
+            <PasswordField label="New password" value={password} onChange={(e) => setPassword(e.target.value)} inputProps={{ minLength: 8 }} required />
             {error && <Alert severity="error">{error}</Alert>}
             <Button type="submit" variant="contained">Update password</Button>
           </Stack>

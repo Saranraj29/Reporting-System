@@ -69,7 +69,7 @@ def _check_client(ctx: Ctx, client_id: uuid.UUID | None) -> None:
 
 @router.get("/projects")
 def list_projects(
-    status: str | None = None, client_id: uuid.UUID | None = None,
+    status: str | None = None, client_id: uuid.UUID | None = None, q: str | None = None,
     ctx: Ctx = Depends(get_ctx), page: Page = Depends(pagination),
 ):
     stmt = select(Project, Client.name).outerjoin(Client, Client.id == Project.client_id).order_by(Project.name)
@@ -77,6 +77,8 @@ def list_projects(
         stmt = stmt.where(Project.status == status)
     if client_id:
         stmt = stmt.where(Project.client_id == client_id)
+    if q:
+        stmt = stmt.where(Project.name.ilike(f"%{q}%") | Client.name.ilike(f"%{q}%"))
     total = ctx.db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar_one()
     rows = ctx.db.execute(stmt.limit(page.limit).offset(page.offset)).all()
     ids = [p.id for p, _ in rows]
@@ -165,8 +167,11 @@ CLIENT_READ = require_any("project.manage", "report.template.manage", "report.sh
 
 
 @router.get("/clients")
-def list_clients(ctx: Ctx = Depends(CLIENT_READ), page: Page = Depends(pagination)):
-    return paged(ctx.db, select(Client).order_by(Client.name), page, _client_out)
+def list_clients(q: str | None = None, ctx: Ctx = Depends(CLIENT_READ), page: Page = Depends(pagination)):
+    stmt = select(Client).order_by(Client.name)
+    if q:
+        stmt = stmt.where(Client.name.ilike(f"%{q}%") | Client.contact_name.ilike(f"%{q}%") | Client.contact_email.ilike(f"%{q}%"))
+    return paged(ctx.db, stmt, page, _client_out)
 
 
 @router.post("/clients", status_code=201)

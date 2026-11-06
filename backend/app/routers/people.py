@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, select, text
 from ..config import get_settings
 from ..deps import Ctx, Page, get_ctx, paged, pagination, require, require_any
 from ..errors import bad_request, conflict, not_found
-from ..models import Permission, Role, RolePermission, Team, TeamMember, User, UserRole
+from ..models import Permission, Role, RolePermission, Task, Team, TeamMember, User, UserRole
 from ..perms import PERMISSIONS
 from ..security import hash_password, make_email_token
 from ..services import mail
@@ -31,7 +31,67 @@ def me(ctx: Ctx = Depends(get_ctx)):
         "roles": [{"id": str(r.id), "name": r.name} for r in roles],
         "permissions": sorted(ctx.perms),
         "owns_projects": bool(owned_project_ids(ctx.db, ctx.me.id)),  # project owners can request AI reports for their projects
+        "profile": _profile_out(ctx.me),
+        "prefs": {**DEFAULT_PREFS, **(ctx.me.prefs or {})},
     }
+
+
+DEFAULT_PREFS = {"email_reminders": True, "start_page": "/", "compact_tables": False}
+START_PAGES = {"/", "/tasks", "/my-day", "/check-ins", "/reports"}
+
+
+def _profile_out(u: User) -> dict:
+    return {"name": u.name, "email": u.email, "phone": u.phone, "job_title": u.job_title, "location": u.location, "bio": u.bio}
+
+
+class ProfilePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    phone: str | None = Field(default=None, max_length=40)
+    job_title: str | None = Field(default=None, max_length=120)
+    location: str | None = Field(default=None, max_length=120)
+    bio: str | None = Field(default=None, max_length=1000)
+
+
+@router.patch("/me/profile")
+def update_profile(body: ProfilePatch, ctx: Ctx = Depends(get_ctx)):
+    """People keep their own details here; the e-mail address and roles are changed by an admin, not here."""
+    for k, v in body.model_dump(exclude_unset=True).items():
+        if v is not None:
+            setattr(ctx.me, k, v.strip())
+    ctx.db.commit()
+    return _profile_out(ctx.me)
+
+
+class PrefsIn(BaseModel):
+    email_reminders: bool | None = None
+    start_page: str | None = None
+    compact_tables: bool | None = None
+
+
+@router.put("/me/preferences")
+def update_preferences(body: PrefsIn, ctx: Ctx = Depends(get_ctx)):
+    data = body.model_dump(exclude_unset=True)
+    if data.get("start_page") is not None and data["start_page"] not in START_PAGES:
+        raise bad_request("invalid_start_page", "Choose one of the main pages")
+    ctx.me.prefs = {**DEFAULT_PREFS, **(ctx.me.prefs or {}), **{k: v for k, v in data.items() if v is not None}}
+    ctx.db.commit()
+    return ctx.me.prefs
+
+
+class PasswordIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@router.post("/me/password", status_code=204)
+def change_password(body: PasswordIn, ctx: Ctx = Depends(get_ctx)):
+    from ..security import verify_password
+
+    if not ctx.me.password_hash or not verify_password(body.current_password, ctx.me.password_hash):
+        raise bad_request("wrong_password", "The current password is not correct")
+    ctx.me.password_hash = hash_password(body.new_password)
+    ctx.me.refresh_version += 1  # other devices must sign in again
+    ctx.db.commit()
 
 
 # --------------------------------------------------------------------------- users
@@ -203,8 +263,11 @@ def _role_out(ctx: Ctx, roles: list[Role]) -> list[dict]:
 
 
 @router.get("/roles")
-def list_roles(ctx: Ctx = Depends(require_any("role.manage", "user.manage"))):
-    roles = ctx.db.execute(select(Role).order_by(Role.name)).scalars().all()
+def list_roles(q: str | None = None, ctx: Ctx = Depends(require_any("role.manage", "user.manage"))):
+    stmt = select(Role).order_by(Role.name)
+    if q:
+        stmt = stmt.where(Role.name.ilike(f"%{q}%") | Role.description.ilike(f"%{q}%"))
+    roles = ctx.db.execute(stmt).scalars().all()
     return {"items": _role_out(ctx, roles)}
 
 
@@ -278,11 +341,13 @@ def delete_role(role_id: uuid.UUID, ctx: Ctx = Depends(require("role.manage"))):
 # --------------------------------------------------------------------------- teams
 class TeamIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
     lead_user_id: uuid.UUID | None = None
 
 
 class TeamPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
     lead_user_id: uuid.UUID | None = None
 
 
@@ -294,9 +359,12 @@ def _team_out(ctx: Ctx, teams: list[Team]) -> list[dict]:
     members: dict[uuid.UUID, list[str]] = {}
     for tid, uid in ctx.db.execute(select(TeamMember.team_id, TeamMember.user_id).where(TeamMember.team_id.in_([t.id for t in teams]))):
         members.setdefault(tid, []).append(str(uid))
+    open_tasks = dict(ctx.db.execute(
+        select(Task.team_id, func.count()).where(Task.team_id.in_([t.id for t in teams]), Task.status != "done").group_by(Task.team_id)).all())
+    all_tasks = dict(ctx.db.execute(select(Task.team_id, func.count()).where(Task.team_id.in_([t.id for t in teams])).group_by(Task.team_id)).all())
     return [
-        {"id": str(t.id), "name": t.name, "lead_user_id": str(t.lead_user_id) if t.lead_user_id else None,
-         "member_ids": members.get(t.id, [])}
+        {"id": str(t.id), "name": t.name, "description": t.description, "lead_user_id": str(t.lead_user_id) if t.lead_user_id else None,
+         "member_ids": members.get(t.id, []), "open_tasks": open_tasks.get(t.id, 0), "total_tasks": all_tasks.get(t.id, 0)}
         for t in teams
     ]
 
@@ -307,8 +375,11 @@ def _check_users(ctx: Ctx, ids: list[uuid.UUID]) -> None:
 
 
 @router.get("/teams")
-def list_teams(ctx: Ctx = Depends(get_ctx)):
-    teams = ctx.db.execute(select(Team).order_by(Team.name)).scalars().all()
+def list_teams(q: str | None = None, ctx: Ctx = Depends(get_ctx)):
+    stmt = select(Team).order_by(Team.name)
+    if q:
+        stmt = stmt.where(Team.name.ilike(f"%{q}%") | Team.description.ilike(f"%{q}%"))
+    teams = ctx.db.execute(stmt).scalars().all()
     return {"items": _team_out(ctx, list(teams))}
 
 
@@ -318,7 +389,7 @@ def create_team(body: TeamIn, ctx: Ctx = Depends(require("project.manage"))):
         _check_users(ctx, [body.lead_user_id])
     if ctx.db.execute(select(Team.id).where(func.lower(Team.name) == body.name.lower())).first():
         raise conflict("team_exists", "A team with this name already exists")
-    team = Team(company_id=ctx.company_id, name=body.name, lead_user_id=body.lead_user_id)
+    team = Team(company_id=ctx.company_id, name=body.name, description=body.description.strip(), lead_user_id=body.lead_user_id)
     ctx.db.add(team)
     ctx.db.commit()
     return _team_out(ctx, [team])[0]
@@ -332,6 +403,8 @@ def patch_team(team_id: uuid.UUID, body: TeamPatch, ctx: Ctx = Depends(require("
     data = body.model_dump(exclude_unset=True)
     if "name" in data and data["name"]:
         team.name = data["name"]
+    if data.get("description") is not None:
+        team.description = data["description"].strip()
     if "lead_user_id" in data:
         if data["lead_user_id"]:
             _check_users(ctx, [data["lead_user_id"]])

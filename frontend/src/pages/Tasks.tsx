@@ -1,18 +1,19 @@
 import AddIcon from '@mui/icons-material/Add'
-import SearchIcon from '@mui/icons-material/Search'
 import {
   Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Grid,
-  InputAdornment, LinearProgress, MenuItem, Pagination, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
+  LinearProgress, MenuItem, Pagination, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { useAuth } from '../auth'
 import { TaskPanel } from '../components/TaskPanel'
-import { AssigneeAvatars, Empty, ErrorAlert, PageHeader, PriorityChip, StatusChip } from '../components/ui'
+import { AssigneeAvatars, Empty, ErrorAlert, PageHeader, PriorityChip, SearchBox, StatusChip } from '../components/ui'
 import { fmtDate, hours } from '../format'
+import { useSearch } from '../hooks'
 import { STATUS_LABELS } from '../theme'
-import type { Page, Project, Task, TaskField, UserLite } from '../types'
+import type { Page, Project, Task, TaskField, Team, UserLite } from '../types'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent']
 
@@ -20,31 +21,30 @@ function useLookups() {
   const projects = useQuery({ queryKey: ['projects', 'all'], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200 }) })
   const users = useQuery({ queryKey: ['users', 'all'], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200 }) })
   const fields = useQuery({ queryKey: ['task-fields'], queryFn: () => api.get<{ items: TaskField[] }>('/task-fields') })
-  return { projects: projects.data?.items ?? [], users: users.data?.items ?? [], fields: fields.data?.items ?? [] }
+  const teams = useQuery({ queryKey: ['teams', ''], queryFn: () => api.get<{ items: Team[] }>('/teams') })
+  return { projects: projects.data?.items ?? [], users: users.data?.items ?? [], fields: fields.data?.items ?? [], teams: teams.data?.items ?? [] }
 }
 
 export default function Tasks() {
   const { can, hasAny } = useAuth()
-  const { projects, users } = useLookups()
+  const { projects, users, teams } = useLookups()
+  const [params] = useSearchParams()  // /tasks?team=<id> comes from the Teams page
   const [page, setPage] = useState(1)
-  const [f, setF] = useState({ q: '', project: '', status: '', priority: '', assignee: '', overdue: false })
-  const [search, setSearch] = useState('')
+  const [f, setF] = useState({ project: '', team: params.get('team') ?? '', status: '', priority: '', assignee: '', overdue: false })
+  const search = useSearch()  // the API is called only once 3+ characters are typed
   const upd = (patch: Partial<typeof f>) => {
     setF((prev) => ({ ...prev, ...patch }))
     setPage(1) // changing a filter goes back to page 1 in the same render (one request, no flicker)
   }
-  useEffect(() => {
-    const t = setTimeout(() => search !== f.q && upd({ q: search }), 300) // debounce typing
-    return () => clearTimeout(t)
-  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setPage(1), [search.term])
   const [dialog, setDialog] = useState<Task | 'new' | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const canEdit = hasAny('task.edit')
   const showPeople = (useAuth().me?.permissions ?? []).some((p) => p === 'task.view.team' || p === 'task.view.all')
 
   const q = useQuery({
-    queryKey: ['tasks', page, f],
-    queryFn: () => api.get<Page<Task>>('/tasks', { page, limit: 15, q: f.q, project: f.project, status: f.status, priority: f.priority, assignee: f.assignee, overdue: f.overdue || undefined }),
+    queryKey: ['tasks', page, f, search.term],
+    queryFn: () => api.get<Page<Task>>('/tasks', { page, limit: 15, q: search.term, team: f.team, project: f.project, status: f.status, priority: f.priority, assignee: f.assignee, overdue: f.overdue || undefined }),
     placeholderData: keepPreviousData,
   })
 
@@ -58,7 +58,7 @@ export default function Tasks() {
       <Paper sx={{ p: 2, mb: 2.5 }}>
         <Grid container spacing={1.5} alignItems="center">
           <Grid item xs={12} md={3}>
-            <TextField size="small" fullWidth placeholder="Search tasks" value={search} onChange={(e) => setSearch(e.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }} />
+            <SearchBox value={search.input} onChange={search.setInput} placeholder="Search tasks" width="100%" />
           </Grid>
           <Grid item xs={6} md={2}>
             <TextField select size="small" fullWidth label="Project" value={f.project} onChange={(e) => upd({ project: e.target.value })}>
@@ -66,7 +66,13 @@ export default function Tasks() {
               {projects.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
             </TextField>
           </Grid>
-          <Grid item xs={6} md={2}>
+          <Grid item xs={6} md={1.5}>
+            <TextField select size="small" fullWidth label="Team" value={f.team} onChange={(e) => upd({ team: e.target.value })}>
+              <MenuItem value="">All</MenuItem>
+              {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={6} md={1.5}>
             <TextField select size="small" fullWidth label="Status" value={f.status} onChange={(e) => upd({ status: e.target.value })}>
               <MenuItem value="">All</MenuItem>
               {Object.entries(STATUS_LABELS).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
@@ -111,7 +117,7 @@ export default function Tasks() {
                 <TableRow key={t.id} hover sx={{ cursor: 'pointer' }} onClick={() => setOpenId(t.id)}>
                   <TableCell>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>{t.title}</Typography>
-                    <Typography variant="caption" color="text.secondary">{t.project_name} · {t.activity_type}</Typography>
+                    <Typography variant="caption" color="text.secondary">{t.project_name} · {t.activity_type}{t.team_name ? ` · ${t.team_name}` : ''}</Typography>
                   </TableCell>
                   <TableCell><StatusChip status={t.status} /></TableCell>
                   <TableCell><PriorityChip priority={t.priority} /></TableCell>
@@ -142,11 +148,11 @@ export default function Tasks() {
 export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () => void }) {
   const qc = useQueryClient()
   const { me } = useAuth()
-  const { projects, users, fields } = useLookups()
+  const { projects, users, fields, teams } = useLookups()
   const defs = Object.fromEntries(fields.map((f) => [f.key, f]))
   const visible = (key: string) => defs[key]?.is_active !== false
   const [form, setForm] = useState({
-    project_id: task?.project_id ?? '', title: task?.title ?? '', description: task?.description ?? '', activity_type: task?.activity_type ?? 'Development',
+    project_id: task?.project_id ?? '', team_id: task?.team_id ?? '', title: task?.title ?? '', description: task?.description ?? '', activity_type: task?.activity_type ?? 'Development',
     priority: task?.priority ?? 'medium', status: task?.status ?? 'todo', eta_hours: task?.eta_hours?.toString() ?? '', start_date: task?.start_date ?? '', due_date: task?.due_date ?? '',
   })
   const [assignees, setAssignees] = useState<UserLite[]>([])
@@ -159,7 +165,7 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
   const save = useMutation({
     mutationFn: async () => {
       const body: Record<string, unknown> = {
-        project_id: form.project_id, title: form.title, description: form.description, activity_type: form.activity_type, priority: form.priority, status: form.status,
+        project_id: form.project_id, team_id: form.team_id || null, title: form.title, description: form.description, activity_type: form.activity_type, priority: form.priority, status: form.status,
         eta_hours: form.eta_hours === '' ? null : Number(form.eta_hours), start_date: form.start_date || null, due_date: form.due_date || null, custom_fields: custom,
       }
       if (task) {
@@ -189,6 +195,12 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
           <Grid item xs={12} md={4}>
             <TextField select label="Project" fullWidth required value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })}>
               {projects.filter((p) => p.status !== 'archived').map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField select label="Team (department)" fullWidth value={form.team_id} onChange={(e) => setForm({ ...form, team_id: e.target.value })} helperText="Which team this task belongs to">
+              <MenuItem value="">No team</MenuItem>
+              {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
             </TextField>
           </Grid>
           {visible('description') && (

@@ -366,7 +366,7 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                 <Box>
                   <SideLabel>Details</SideLabel>
                   <Stack spacing={0.75}>
-                    {[['Project', t.project_name], ['Activity', t.activity_type], ['Start date', fmtDate(t.start_date)],
+                    {[['Project', t.project_name], ['Team', t.team_name ?? '—'], ['Activity', t.activity_type], ['Start date', fmtDate(t.start_date)],
                       ...Object.entries(t.custom_fields).map(([k, v]) => [k.replace(/_/g, ' '), String(v)])].map(([k, v]) => (
                       <Stack key={k} direction="row" justifyContent="space-between"><Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>{k}</Typography><Typography variant="caption" sx={{ fontWeight: 600 }}>{v}</Typography></Stack>
                     ))}

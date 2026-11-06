@@ -1,18 +1,24 @@
+import AccountCircleIcon from '@mui/icons-material/AccountCircleOutlined'
 import AddIcon from '@mui/icons-material/Add'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettingsOutlined'
 import AssessmentIcon from '@mui/icons-material/AssessmentOutlined'
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesomeOutlined'
 import BusinessIcon from '@mui/icons-material/BusinessCenterOutlined'
 import DashboardIcon from '@mui/icons-material/SpaceDashboardOutlined'
+import DomainIcon from '@mui/icons-material/DomainOutlined'
 import FolderIcon from '@mui/icons-material/FolderOpenOutlined'
+import GroupsIcon from '@mui/icons-material/GroupsOutlined'
+import LogoutIcon from '@mui/icons-material/LogoutOutlined'
 import MenuIcon from '@mui/icons-material/Menu'
+import PeopleIcon from '@mui/icons-material/PeopleAltOutlined'
 import SettingsIcon from '@mui/icons-material/SettingsOutlined'
+import SmartToyIcon from '@mui/icons-material/SmartToyOutlined'
 import TaskIcon from '@mui/icons-material/TaskAltOutlined'
 import TimerIcon from '@mui/icons-material/TimerOutlined'
-import GroupsIcon from '@mui/icons-material/GroupsOutlined'
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesomeOutlined'
-import SmartToyIcon from '@mui/icons-material/SmartToyOutlined'
-import { AppBar, Avatar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
-import { useRef, useState, type ReactNode } from 'react'
+import TuneIcon from '@mui/icons-material/TuneOutlined'
+import Diversity3Icon from '@mui/icons-material/Diversity3Outlined'
+import { AppBar, Avatar, Box, ButtonBase, Divider, Drawer, Fab, GlobalStyles, IconButton, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { initials } from '../format'
@@ -29,21 +35,53 @@ interface Item {
   show: boolean
 }
 
+/** "Priya Nair-Kumar Rao" -> "Priya Rao": only the first and the last name in the header. */
+export function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  return parts.length > 2 ? `${parts[0]} ${parts[parts.length - 1]}` : name.trim()
+}
+
+const read = (key: string, fallback: boolean) => {
+  try {
+    const v = localStorage.getItem(key)
+    return v === null ? fallback : v === '1'
+  } catch {
+    return fallback
+  }
+}
+const write = (key: string, v: boolean) => {
+  try {
+    localStorage.setItem(key, v ? '1' : '0')
+  } catch {
+    /* private mode: the choice just is not remembered */
+  }
+}
+
 export function Layout() {
   const { me, can, hasAny, logout } = useAuth()
   const theme = useTheme()
   const mobile = useMediaQuery(theme.breakpoints.down('md'))
-  const [open, setOpen] = useState(false)
-  const [statusOpen, setStatusOpen] = useState(false)
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const nav = useNavigate()
   const { pathname } = useLocation()
   const trigger = useRef<HTMLButtonElement>(null)
+  const [statusOpen, setStatusOpen] = useState(false)
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+
+  // sidebar: one toggle for every screen. On a laptop it slides away and the page widens (remembered); on a phone it opens over the page.
+  const navKey = `sidebar-open:${me?.id}`
+  const [deskOpen, setDeskOpen] = useState(() => read(navKey, true))
+  const [phoneOpen, setPhoneOpen] = useState(false)
+  const navOpen = mobile ? phoneOpen : deskOpen
+  const toggleNav = () => (mobile ? setPhoneOpen((o) => !o) : (setDeskOpen((o) => { write(navKey, !o); return !o })))
+  useEffect(() => setPhoneOpen(false), [pathname])
+
   const storeKey = `assistant-open:${me?.id}`
-  const [assistOpen, setAssistOpen] = useState(() => { try { return localStorage.getItem(storeKey) === '1' } catch { return false } })
-  const setAssist = (v: boolean) => { setAssistOpen(v); try { localStorage.setItem(storeKey, v ? '1' : '0') } catch { /* private mode */ } }
+  const [assistOpen, setAssistOpen] = useState(() => read(storeKey, false))
+  const setAssist = (v: boolean) => { setAssistOpen(v); write(storeKey, v) }
   const hasAssistant = can('assistant.use') && !pathname.startsWith('/ai-reports') // AI reports keeps its own three-step flow
-  const docked = hasAssistant && assistOpen && !mobile  // `mobile` = below md: there the panel opens full screen instead of docking
+  const docked = hasAssistant && assistOpen && !mobile  // below md the panel opens full screen instead of docking
+  const left = !mobile && navOpen ? WIDTH : 0
+  const right = docked ? ASSISTANT_WIDTH : 0
 
   const main: Item[] = [
     { to: '/', label: 'Dashboard', icon: <DashboardIcon />, show: hasAny('dashboard.view') },
@@ -54,10 +92,20 @@ export function Layout() {
     { to: '/ai-reports', label: 'AI reports', icon: <AutoAwesomeIcon />, show: can('report.ai.draft') || !!me?.owns_projects },
   ]
   const admin: Item[] = [
-    { to: '/admin/users', label: 'Users & roles', icon: <AdminPanelSettingsIcon />, show: can('user.manage') || can('role.manage') },
-    { to: '/admin/projects', label: 'Projects & clients', icon: <FolderIcon />, show: can('project.manage') },
-    { to: '/admin/settings', label: 'Settings', icon: <SettingsIcon />, show: can('settings.manage') },
+    { to: '/admin/users', label: 'Users', icon: <PeopleIcon />, show: can('user.manage') },
+    { to: '/admin/roles', label: 'Roles & permissions', icon: <AdminPanelSettingsIcon />, show: can('role.manage') },
+    { to: '/admin/projects', label: 'Projects', icon: <FolderIcon />, show: can('project.manage') },
+    { to: '/admin/clients', label: 'Clients', icon: <DomainIcon />, show: can('project.manage') },
+    { to: '/admin/teams', label: 'Teams', icon: <Diversity3Icon />, show: can('project.manage') },
   ]
+  const settings: Item = { to: '/admin/settings', label: 'Settings', icon: <SettingsIcon />, show: can('settings.manage') }
+
+  const signOut = async () => {
+    setAnchor(null)
+    try { sessionStorage.removeItem('start-page-used') } catch { /* ignore */ }
+    await logout()
+    nav('/login')
+  }
 
   const link = (i: Item) =>
     i.show && (
@@ -66,7 +114,6 @@ export function Layout() {
         component={NavLink}
         to={i.to}
         end={i.to === '/'}
-        onClick={() => setOpen(false)}
         sx={{
           mx: 1.5, mb: 0.5, borderRadius: 2, color: 'text.secondary',
           '&.active': { bgcolor: 'primary.main', color: '#fff', '& .MuiListItemIcon-root': { color: '#fff' } },
@@ -93,7 +140,7 @@ export function Layout() {
           </Typography>
         </Box>
       </Stack>
-      <List sx={{ flex: 1 }}>
+      <List component="nav" aria-label="Main" sx={{ flex: 1, overflowY: 'auto' }}>
         {main.map(link)}
         {admin.some((a) => a.show) && (
           <>
@@ -103,21 +150,29 @@ export function Layout() {
           </>
         )}
       </List>
-      <Box sx={{ p: 2, color: 'text.secondary' }}>
-        <Typography variant="caption">Release 1</Typography>
+      <Box component="nav" aria-label="Account" sx={{ pb: 1 }}>
+        <Divider sx={{ mb: 1, mx: 2 }} />
+        {link(settings)}
+        <ListItemButton onClick={signOut} sx={{ mx: 1.5, borderRadius: 2, color: 'text.secondary' }}>
+          <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}><LogoutIcon /></ListItemIcon>
+          <ListItemText primary="Log out" primaryTypographyProps={{ fontWeight: 600, fontSize: 14 }} />
+        </ListItemButton>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 3, pt: 1 }}>Release 1</Typography>
       </Box>
     </Box>
   )
 
+  const slide = theme.transitions.create(['margin', 'width'], { duration: theme.transitions.duration.shorter })
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <AppBar position="fixed" color="inherit" sx={{ width: { md: `calc(100% - ${WIDTH}px - ${docked ? ASSISTANT_WIDTH : 0}px)` }, ml: { md: `${WIDTH}px` }, borderBottom: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
+      {me?.prefs.compact_tables && <GlobalStyles styles={{ '.MuiTableCell-root': { paddingTop: '6px', paddingBottom: '6px' } }} />}
+      <AppBar position="fixed" color="inherit" sx={{ width: `calc(100% - ${left + right}px)`, ml: `${left}px`, transition: slide, borderBottom: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
         <Toolbar>
-          {mobile && (
-            <IconButton edge="start" onClick={() => setOpen(true)} sx={{ mr: 1 }} aria-label="Open navigation">
+          <Tooltip title={navOpen ? 'Hide the sidebar' : 'Show the sidebar'}>
+            <IconButton edge="start" onClick={toggleNav} sx={{ mr: 1 }} aria-label={navOpen ? 'Hide navigation' : 'Show navigation'} aria-expanded={navOpen}>
               <MenuIcon />
             </IconButton>
-          )}
+          </Tooltip>
           <Box sx={{ flex: 1 }} />
           <HeaderTimer />
           {hasAssistant && (
@@ -127,50 +182,43 @@ export function Layout() {
               </IconButton>
             </Tooltip>
           )}
-          <Tooltip title="Add today's status">
-            <IconButton color="primary" onClick={() => setStatusOpen(true)} aria-label="Add daily status" sx={{ bgcolor: 'primary.main', color: '#fff', mr: 2, '&:hover': { bgcolor: 'primary.dark' } }}>
-              <AddIcon />
-            </IconButton>
-          </Tooltip>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ cursor: 'pointer' }} onClick={(e) => setAnchor(e.currentTarget)}>
+          <ButtonBase onClick={(e) => setAnchor(e.currentTarget)} aria-label="Account menu" aria-haspopup="menu" aria-expanded={!!anchor} sx={{ borderRadius: 2, px: 0.75, py: 0.5, gap: 1 }}>
             <Avatar sx={{ width: 34, height: 34, bgcolor: 'secondary.main', fontSize: 14 }}>{initials(me?.name ?? '?')}</Avatar>
-            <Box sx={{ display: { xs: 'none', sm: docked ? 'none' : 'block' } }}>  {/* the docked assistant narrows the top bar: keep only the avatar */}
-              <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-                {me?.name}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {me?.roles.map((r) => r.name).join(', ')}
-              </Typography>
-            </Box>
-          </Stack>
-          <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
-            <MenuItem disabled>{me?.email}</MenuItem>
-            <MenuItem
-              onClick={async () => {
-                setAnchor(null)
-                await logout()
-                nav('/login')
-              }}
-            >
-              Sign out
+            <Typography variant="body2" sx={{ fontWeight: 600, display: { xs: 'none', sm: 'block' } }}>{shortName(me?.name ?? '')}</Typography>
+          </ButtonBase>
+          <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
+            <MenuItem disabled sx={{ opacity: '1 !important' }}>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>{me?.name}</Typography>
+                <Typography variant="caption" color="text.secondary">{me?.email}</Typography>
+              </Box>
             </MenuItem>
+            <Divider />
+            <MenuItem onClick={() => { setAnchor(null); nav('/profile') }}><ListItemIcon><AccountCircleIcon fontSize="small" /></ListItemIcon>Profile</MenuItem>
+            <MenuItem onClick={() => { setAnchor(null); nav('/preferences') }}><ListItemIcon><TuneIcon fontSize="small" /></ListItemIcon>Preferences</MenuItem>
+            <Divider />
+            <MenuItem onClick={signOut}><ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>Log out</MenuItem>
           </Menu>
         </Toolbar>
       </AppBar>
-      <Box component="nav" sx={{ width: { md: WIDTH }, flexShrink: { md: 0 } }}>
-        {mobile ? (
-          <Drawer open={open} onClose={() => setOpen(false)} PaperProps={{ sx: { width: WIDTH } }}>
-            {drawer}
-          </Drawer>
-        ) : (
-          <Drawer variant="permanent" PaperProps={{ sx: { width: WIDTH, borderRight: '1px solid', borderColor: 'divider' } }} open>
-            {drawer}
-          </Drawer>
-        )}
-      </Box>
-      <Box component="main" sx={{ flex: 1, minWidth: 0, p: { xs: 2, md: 3.5 }, pt: { xs: 10, md: 11 }, mr: { md: docked ? `${ASSISTANT_WIDTH}px` : 0 } }}>
+      <Drawer
+        variant={mobile ? 'temporary' : 'persistent'}
+        open={navOpen}
+        onClose={() => setPhoneOpen(false)}
+        ModalProps={{ keepMounted: false }}
+        PaperProps={{ sx: { width: WIDTH, borderRight: '1px solid', borderColor: 'divider' } }}
+        sx={{ width: mobile ? 0 : left, flexShrink: 0, transition: slide }}
+      >
+        {drawer}
+      </Drawer>
+      <Box component="main" sx={{ flex: 1, minWidth: 0, p: { xs: 2, md: 3.5 }, pt: { xs: 10, md: 11 }, pb: { xs: 11, md: 11 }, transition: slide, mr: `${right}px` }}>
         <Outlet />
       </Box>
+      <Tooltip title="Add today's status" placement="left">
+        <Fab color="primary" aria-label="Add daily status" onClick={() => setStatusOpen(true)} sx={{ position: 'fixed', bottom: 24, right: 24 + right, transition: slide, zIndex: 1050 }}>
+          <AddIcon />
+        </Fab>
+      </Tooltip>
       {hasAssistant && <AssistantPanel open={assistOpen} onClose={() => setAssist(false)} returnFocus={() => trigger.current?.focus()} />}
       <DailyStatusDialog open={statusOpen} onClose={() => setStatusOpen(false)} />
     </Box>

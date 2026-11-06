@@ -213,3 +213,13 @@ def pdf_works() -> bool:
         return to_pdf("<p>x</p>").startswith(b"%PDF")
     except Exception:  # noqa: BLE001
         return False
+
+
+def grant_assistant_to_members(owner_conn) -> None:
+    """Team Members do not get the AI assistant by default; tests about member scope grant it explicitly."""
+    from app.services.access import clear_permission_cache
+
+    owner_conn.execute(
+        "INSERT INTO role_permissions (company_id, role_id, permission_key) SELECT company_id, id, 'assistant.use' FROM roles WHERE name = 'Team Member' ON CONFLICT DO NOTHING"
+    )
+    clear_permission_cache()

@@ -56,6 +56,11 @@ class User(Base, Stamps):
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     refresh_version: Mapped[int] = mapped_column(Integer, default=0)
+    phone: Mapped[str] = mapped_column(Text, default="")
+    job_title: Mapped[str] = mapped_column(Text, default="")
+    location: Mapped[str] = mapped_column(Text, default="")
+    bio: Mapped[str] = mapped_column(Text, default="")
+    prefs: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
 
 class Team(Base, Stamps):
@@ -63,6 +68,7 @@ class Team(Base, Stamps):
     id: Mapped[uuid.UUID] = _pk()
     company_id: Mapped[uuid.UUID] = _cid()
     name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="")  # what this team / department does
     lead_user_id: Mapped[uuid.UUID | None] = _fk("users", True, "SET NULL")
 
 
@@ -144,6 +150,7 @@ class Task(Base, Stamps):
     id: Mapped[uuid.UUID] = _pk()
     company_id: Mapped[uuid.UUID] = _cid()
     project_id: Mapped[uuid.UUID] = _fk("projects")
+    team_id: Mapped[uuid.UUID | None] = _fk("teams", True, "SET NULL")  # the department the task belongs to
     created_by: Mapped[uuid.UUID | None] = _fk("users", True, "SET NULL")
     title: Mapped[str] = mapped_column(Text)
     description: Mapped[str] = mapped_column(Text, default="")

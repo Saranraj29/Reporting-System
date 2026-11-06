@@ -10,7 +10,7 @@ from app.ai.breaker import breaker
 from app.services import ai
 from evals import runner, stamp
 
-from .conftest import drain
+from .conftest import drain, grant_assistant_to_members
 from .test_ai_reports import make_owner
 
 
@@ -142,12 +142,14 @@ def test_provider_failures_still_produce_a_report(case, work, actors, owner_conn
     assert res.builtin  # built-in wording, within the same attempt where possible
 
 
-def test_question_runner_with_an_oracle_model(work, monkeypatch):
+def test_question_runner_with_an_oracle_model(work, owner_conn, monkeypatch):
     """The question harness itself: a stand-in model that calls the right tool and answers from its result passes the cases it should, and the
     runner flags a scope leak when an answer mentions what the asker may not see."""
     import re as _re
 
     from .test_assistant import script
+
+    grant_assistant_to_members(owner_conn)
 
     cases = {c["id"]: c for c in runner.load_cases("question")}
     actors = runner.actors_for(work)
