@@ -164,8 +164,8 @@ partial-failure retry, and schedule timing per company timezone.
   company switch (`ai_assistant_enabled`). Key `assistant.use` is seeded on every role.
 * **Account and admin chrome** – the header shows first + last name and opens *Profile* (job title, phone, location, about me, change password), *Preferences* (reminder emails — honoured by
   the worker —, compact tables, start page) and *Log out*; the sidebar toggles on every screen size and keeps *Settings* and *Log out* at the bottom; the add-status button floats bottom-right.
-  Admin has separate pages for Users, Roles & permissions, Projects, Clients and Teams. **Teams work like departments** (description, lead, members, open/total tasks) and a task can belong to a
-  team. Every search box calls the API only from **3 typed characters**. New people join as **Team Member**, which has no AI assistant (grant `assistant.use` to any role that should).
+  Admin has separate pages for Users, Roles & permissions, Projects, Clients and Teams. **Teams work like departments** (description, lead, members, projects and open tasks): a team is chosen when a **project** is created and the project's tasks inherit it, so there is no team field on a task.
+  Team filters exist on Tasks, Projects, Dashboard and Reports. Every search box calls the API only from **3 typed characters**. New people join as **Team Member**, which has no AI assistant (grant `assistant.use` to any role that should).
 * **Project owners** – a project can have owners (Admin → Projects & clients). An owner sees every task, comment, time entry and
   dashboard figure inside that project, whoever created it or is assigned to it (view only; editing still follows `task.edit.*`,
   and daily-status text is never widened). Company Admin, Manager and CEO/CTO hold `…view.all`, so they see every project.
