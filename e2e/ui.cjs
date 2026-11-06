@@ -346,6 +346,7 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByText('Profile saved.').waitFor()
     await shot(page, '34-profile')
     await page.reload()
+    await page.locator('input[value="Delivery manager"]').waitFor({ timeout: 10000 })  // the form fills in once /me has loaded
     check((await page.getByLabel('Job title').inputValue()) === 'Delivery manager', 'profile details are kept after a reload')
     await page.getByRole('button', { name: 'Account menu' }).click()
     await page.getByRole('menuitem', { name: 'Preferences' }).click()
