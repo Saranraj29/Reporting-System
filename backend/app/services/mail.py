@@ -120,6 +120,11 @@ def _open_smtp(s) -> smtplib.SMTP:
                 smtp.ehlo()
         if s.smtp_user:
             stage = "logging in"
+            smtp.ehlo_or_helo_if_needed()
+            # smtplib retries a rejected PLAIN login with LOGIN; Gmail answers that by hanging up, which hides its real answer ("535 bad credentials")
+            # behind "connection unexpectedly closed". One mechanism, one honest answer.
+            if "PLAIN" in str(smtp.esmtp_features.get("auth", "")).split():
+                smtp.esmtp_features["auth"] = "PLAIN"
             smtp.login(s.smtp_user, s.smtp_password or "")
         return smtp
     except Exception as exc:

@@ -49,7 +49,7 @@ unique `Message-ID`, uses a no-reply sender (set `EMAIL_REPLY_TO` if people shou
 | Symptom | Likely cause |
 |---|---|
 | Nothing arrives, "Development mode" in Settings | `EMAIL_BACKEND` is still `console` |
-| "rejected the username or password" | wrong credentials, or an App Password is needed |
+| "rejected the username or password" (Gmail: `535 5.7.8 BadCredentials`) | wrong credentials: for Gmail the password must be a 16-letter **App Password** of the account in `SMTP_USER` (2-Step Verification on, typed without spaces); `SMTP_USER` must be that account's full address |
 | "closed the connection while …" (works from your PC but not from Docker) | Docker Desktop's IPv6; the app tries IPv4 first since version 2026-11-10, so rebuild with `docker compose up -d --build`. Otherwise a firewall / VPN / antivirus on the network blocks or inspects SMTP: | a firewall / VPN / antivirus on the network blocks or inspects SMTP: try port 465 + `SMTP_SECURITY=ssl`, another network, or turn off the antivirus's email scanning |
 | "Could not reach the mail server" | wrong `SMTP_HOST`/`SMTP_PORT`, or the network blocks outbound SMTP |
 | "Secure connection … failed" | port/security mismatch: 587 ↔ starttls, 465 ↔ ssl |

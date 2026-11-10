@@ -163,7 +163,11 @@ class FakeSMTP:
 
     def __init__(self, host, port, timeout=None, context=None):
         self.args, self.calls, self.sent = (host, port, timeout), [], []
+        self.esmtp_features = {"auth": "LOGIN PLAIN XOAUTH2"}
         FakeSMTP.instances.append(self)
+
+    def ehlo_or_helo_if_needed(self):
+        self.calls.append("ehlo?")
 
     def ehlo(self):
         self.calls.append("ehlo")
@@ -324,3 +328,21 @@ def test_debug_output_never_contains_credentials():
     from app import mailcheck
 
     assert mailcheck.main(["--debug"]) == 2
+
+
+def test_a_rejected_password_is_reported_as_such_not_as_a_dropped_connection(monkeypatch):
+    """Gmail hangs up on the LOGIN retry that smtplib does after a rejected PLAIN: only PLAIN may be tried, so the 535 reaches the user."""
+    FakeSMTP.instances.clear()
+    smtp_env(monkeypatch)
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+    mail.send_email("to@x.test", "s", "t")
+    assert FakeSMTP.instances[0].esmtp_features["auth"] == "PLAIN"
+
+    class Rejects(FakeSMTP):
+        def login(self, user, pw):
+            raise smtplib.SMTPAuthenticationError(535, b"5.7.8 Username and Password not accepted. BadCredentials")
+
+    monkeypatch.setattr(smtplib, "SMTP", Rejects)
+    with pytest.raises(mail.MailError) as e:
+        mail.send_email("to@x.test", "s", "t")
+    assert "rejected the username or password" in str(e.value) and "BadCredentials" in str(e.value) and "firewall" not in str(e.value)
