@@ -33,7 +33,7 @@ APP_ENV=prod             # production mode (stricter defaults)
 
 Check it three ways:
 1. Settings → **Email delivery** shows the mode and any problem, and **Send a test email to me** delivers one right now (errors are explained: wrong password, host unreachable, TLS mismatch, sender refused).
-2. `docker compose exec api python -m app.mailcheck you@yourcompany.com`
+2. `docker compose exec api python -m app.mailcheck you@yourcompany.com` — add `--debug` to see the conversation with the mail server (usernames and passwords are blanked, so it is safe to share)
 3. `docker compose logs api worker | grep -i "email"` — start-up warnings appear as `email configuration: …`.
 
 ## Providers

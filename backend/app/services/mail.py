@@ -73,6 +73,15 @@ def _connect_v4_first(host: str, port: int, timeout: float, source=None) -> sock
     raise last or OSError(f"no address found for {host}")
 
 
+DEBUG = False  # `python -m app.mailcheck --debug` prints the SMTP conversation (the password is never printed)
+_SECRET = re.compile(r"(send: 'AUTH [A-Z0-9_-]+ )[A-Za-z0-9+/=]+|^(send: ')[A-Za-z0-9+/=]{8,}(\\r\\n')$|(334 )[A-Za-z0-9+/=]+", re.M)
+
+
+def redact_debug(line: str) -> str:
+    """The credentials travel base64-encoded in the SMTP conversation; blank them so a pasted debug log is safe to share."""
+    return _SECRET.sub(lambda m: (m.group(1) + "***") if m.group(1) else (m.group(2) + "***" + m.group(3)) if m.group(2) else m.group(4) + "***", line)
+
+
 def _v4_first(base: type) -> type:
     """`base` (SMTP or SMTP_SSL) with the IPv4-first connect. Same class name, so logs and tests still read naturally."""
     def plain(self, host, port, timeout):
@@ -81,7 +90,12 @@ def _v4_first(base: type) -> type:
     def tls(self, host, port, timeout):
         return self.context.wrap_socket(_connect_v4_first(host, port, timeout, self.source_address), server_hostname=self._host)
 
-    return type(base.__name__, (base,), {"_get_socket": tls if issubclass(base, smtplib.SMTP_SSL) else plain})
+    def debug_line(self, *args):
+        import sys
+
+        print(redact_debug(" ".join(str(a) for a in args)), file=sys.stderr)
+
+    return type(base.__name__, (base,), {"_get_socket": tls if issubclass(base, smtplib.SMTP_SSL) else plain, "_print_debug": debug_line})
 
 
 def _open_smtp(s) -> smtplib.SMTP:
@@ -91,8 +105,12 @@ def _open_smtp(s) -> smtplib.SMTP:
         ctx = ssl.create_default_context()
         if s.smtp_security == "ssl":
             smtp: smtplib.SMTP = _v4_first(smtplib.SMTP_SSL)(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout, context=ctx)
+            if DEBUG:
+                smtp.set_debuglevel(1)
         else:
             smtp = _v4_first(smtplib.SMTP)(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout)
+            if DEBUG:
+                smtp.set_debuglevel(1)
             stage = "saying hello (EHLO)"
             smtp.ehlo()
             if s.smtp_security == "starttls":

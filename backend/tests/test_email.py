@@ -314,3 +314,13 @@ def test_ipv4_addresses_are_tried_before_ipv6(monkeypatch):
     monkeypatch.setattr(FakeSock, "connect", lambda self, addr: (_ for _ in ()).throw(OSError("no route")) if self.family == socket.AF_INET else tried.append(addr[0]))
     assert mail._connect_v4_first("smtp.example.test", 587, 5).family == socket.AF_INET6  # IPv6 is still the fallback when IPv4 does not connect
     assert mail._v4_first(smtplib.SMTP).__name__ == "SMTP" and mail._v4_first(smtplib.SMTP_SSL).__name__ == "SMTP_SSL"
+
+
+def test_debug_output_never_contains_credentials():
+    assert mail.redact_debug("send: 'AUTH PLAIN AHVzZXIAcGFzcw=='") == "send: 'AUTH PLAIN ***'"
+    assert mail.redact_debug("send: 'c2VjcmV0LXB3\\r\\n'") == "send: '***\\r\\n'"
+    assert mail.redact_debug("reply: b'334 UGFzc3dvcmQ6'") == "reply: b'334 ***'"
+    assert mail.redact_debug("reply: b'250-AUTH LOGIN PLAIN XOAUTH2'") == "reply: b'250-AUTH LOGIN PLAIN XOAUTH2'"  # the server's menu is kept
+    from app import mailcheck
+
+    assert mailcheck.main(["--debug"]) == 2
