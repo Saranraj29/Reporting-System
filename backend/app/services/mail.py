@@ -54,18 +54,28 @@ def config_problems() -> list[str]:
 
 
 def _open_smtp(s) -> smtplib.SMTP:
-    ctx = ssl.create_default_context()
-    if s.smtp_security == "ssl":
-        smtp: smtplib.SMTP = smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout, context=ctx)
-    else:
-        smtp = smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout)
-        smtp.ehlo()
-        if s.smtp_security == "starttls":
-            smtp.starttls(context=ctx)
+    """Opens the connection. If a step fails, the exception carries which step (`_mail_stage`), so 'connection closed' can say WHERE it closed."""
+    stage = "connecting to the server"
+    try:
+        ctx = ssl.create_default_context()
+        if s.smtp_security == "ssl":
+            smtp: smtplib.SMTP = smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout, context=ctx)
+        else:
+            smtp = smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout)
+            stage = "saying hello (EHLO)"
             smtp.ehlo()
-    if s.smtp_user:
-        smtp.login(s.smtp_user, s.smtp_password or "")
-    return smtp
+            if s.smtp_security == "starttls":
+                stage = "starting TLS (STARTTLS)"
+                smtp.starttls(context=ctx)
+                stage = "saying hello again after TLS"
+                smtp.ehlo()
+        if s.smtp_user:
+            stage = "logging in"
+            smtp.login(s.smtp_user, s.smtp_password or "")
+        return smtp
+    except Exception as exc:
+        exc._mail_stage = stage  # type: ignore[attr-defined]
+        raise
 
 
 def _friendly(exc: Exception, s) -> MailError:
@@ -73,6 +83,13 @@ def _friendly(exc: Exception, s) -> MailError:
     raw = re.sub(re.escape(s.smtp_password), "***", str(exc)) if s.smtp_password else str(exc)
     raw = raw[:200]
     where = f"{s.smtp_host}:{s.smtp_port}"
+    stage = getattr(exc, "_mail_stage", "sending the message")
+    if isinstance(exc, smtplib.SMTPServerDisconnected):
+        return MailError(
+            f"The mail server {where} closed the connection while {stage}. This is usually a firewall, VPN or antivirus on your network blocking or "
+            f"inspecting outgoing mail on port {s.smtp_port}. Try SMTP_PORT=465 with SMTP_SECURITY=ssl (or 587 with starttls), another network, or ask "
+            f"your provider. ({raw})"
+        )
     if isinstance(exc, smtplib.SMTPAuthenticationError):
         return MailError(f"The mail server {where} rejected the username or password. (Gmail needs an App Password.) Server said: {raw}")
     if isinstance(exc, (smtplib.SMTPConnectError, ConnectionRefusedError, socket.gaierror)):
@@ -119,7 +136,11 @@ def send_email(
         msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=fname)
     try:
         with _open_smtp(s) as smtp:
-            smtp.send_message(msg)
+            try:
+                smtp.send_message(msg)
+            except Exception as exc:
+                exc._mail_stage = "sending the message"  # type: ignore[attr-defined]
+                raise
     except Exception as exc:  # noqa: BLE001
         raise _friendly(exc, s) from exc
     log.info("EMAIL sent to=%s subject=%s id=%s", mask(to), subject, msg["Message-ID"])

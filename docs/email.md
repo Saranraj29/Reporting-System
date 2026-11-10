@@ -50,6 +50,7 @@ unique `Message-ID`, uses a no-reply sender (set `EMAIL_REPLY_TO` if people shou
 |---|---|
 | Nothing arrives, "Development mode" in Settings | `EMAIL_BACKEND` is still `console` |
 | "rejected the username or password" | wrong credentials, or an App Password is needed |
+| "closed the connection while …" | a firewall / VPN / antivirus on the network blocks or inspects SMTP: try port 465 + `SMTP_SECURITY=ssl`, another network, or turn off the antivirus's email scanning |
 | "Could not reach the mail server" | wrong `SMTP_HOST`/`SMTP_PORT`, or the network blocks outbound SMTP |
 | "Secure connection … failed" | port/security mismatch: 587 ↔ starttls, 465 ↔ ssl |
 | "refused the sender address" | `EMAIL_FROM` is not an address your account may send from |

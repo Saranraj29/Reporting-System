@@ -270,3 +270,17 @@ def test_links_are_never_in_the_response_when_real_mail_is_on(client, monkeypatc
     assert "dev_reset_token" not in client.post("/api/v1/auth/forgot-password", json={"email": "q@zeta.io"}).json()
     assert "dev_verification_token" not in client.post("/api/v1/auth/resend-verification", json={"email": "q@zeta.io"}).json()
     assert "dev_invite_link" not in admin.post("/users/invite", {"email": "new@acme.com"}).json()
+
+
+def test_a_dropped_connection_says_where_it_dropped(monkeypatch):
+    smtp_env(monkeypatch)
+
+    class DropsAtTls(FakeSMTP):
+        def starttls(self, context=None):
+            raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+
+    monkeypatch.setattr(smtplib, "SMTP", DropsAtTls)
+    with pytest.raises(mail.MailError) as e:
+        mail.send_email("to@x.test", "s", "t")
+    msg = str(e.value)
+    assert "closed the connection while starting TLS (STARTTLS)" in msg and "SMTP_PORT=465" in msg and "firewall" in msg and "s3cret-pw" not in msg
