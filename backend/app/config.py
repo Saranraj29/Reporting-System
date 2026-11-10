@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     def is_prod(self) -> bool:
         return self.app_env == "prod"
 
+    @property
+    def dev_shortcuts(self) -> bool:
+        """Verify / reset / invite links are handed back in the API response ONLY while no real mail is sent (console backend, not production):
+        once SMTP is on, the only way to get a link is the email itself."""
+        return not self.is_prod and self.email_backend == "console"
+
 
 @lru_cache
 def get_settings() -> Settings:

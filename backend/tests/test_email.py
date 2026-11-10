@@ -9,7 +9,7 @@ import pytest
 from app.config import get_settings
 from app.services import mail
 
-from .conftest import PASSWORD, drain, login
+from .conftest import PASSWORD, drain, login, signup_admin
 
 
 def smtp_env(monkeypatch, **kv):
@@ -257,3 +257,16 @@ def test_mailcheck_command(monkeypatch, capsys):
     smtp_env(monkeypatch)
     monkeypatch.setattr(mail, "_open_smtp", lambda s: (_ for _ in ()).throw(TimeoutError("t")))
     assert mailcheck.main(["a@b.test"]) == 1 and "did not answer" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------------ the development shortcuts disappear once real mail is on
+def test_links_are_never_in_the_response_when_real_mail_is_on(client, monkeypatch):
+    r = client.post("/api/v1/auth/register", json={"email": "p@zeta.io", "password": PASSWORD, "name": "P", "company_name": "Zeta"})
+    assert "dev_verification_token" in r.json()  # console backend (development): the shortcut exists
+    admin = signup_admin(client, domain="acme.com")  # (needs the shortcut to verify itself, so before real mail is switched on)
+    smtp_env(monkeypatch)
+    r = client.post("/api/v1/auth/register", json={"email": "q@zeta.io", "password": PASSWORD, "name": "Q", "company_name": "Zeta"})
+    assert r.status_code == 201 and "dev_verification_token" not in r.json()  # real mail: the link only travels by email
+    assert "dev_reset_token" not in client.post("/api/v1/auth/forgot-password", json={"email": "q@zeta.io"}).json()
+    assert "dev_verification_token" not in client.post("/api/v1/auth/resend-verification", json={"email": "q@zeta.io"}).json()
+    assert "dev_invite_link" not in admin.post("/users/invite", {"email": "new@acme.com"}).json()

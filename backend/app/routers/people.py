@@ -231,7 +231,7 @@ def invite_user(body: InviteIn, ctx: Ctx = Depends(require("user.manage"))):
     mail.queue_email(ctx.db, ctx.company_id, "invite", to=body.email.lower(), role_id=str(role_id), inviter=ctx.me.name)
     ctx.db.commit()
     out = {"message": "Invite sent", "email": body.email.lower()}
-    if get_settings().app_env != "prod":
+    if get_settings().dev_shortcuts:
         out["dev_invite_link"] = link
     return out
 

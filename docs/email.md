@@ -13,6 +13,9 @@ All of them are sent by the worker from a queue: a slow or failing mail server n
 growing back-off) and the result is written to Settings → Notification log. Each message has an HTML and a plain-text part; names are HTML-escaped.
 Tokens and links are created at send time, so no secret is stored in the job table.
 
+The "Development mode: open link" shortcut on the verify / reset screens exists **only while `EMAIL_BACKEND=console`**. With `smtp` the link is never returned
+by the API: the only way to get it is the email.
+
 ## Turn on real email
 Put these in a `.env` file next to `docker-compose.yml` (it is git-ignored — **never commit it**), then `docker compose up -d --force-recreate api worker worker-ai`:
 
@@ -25,7 +28,7 @@ SMTP_SECURITY=starttls   # starttls | ssl | none
 SMTP_USER=...
 SMTP_PASSWORD=...
 PUBLIC_WEB_URL=https://app.yourcompany.com   # the address people open; links in emails start with it
-APP_ENV=prod             # hides the "Development mode: open link" shortcuts
+APP_ENV=prod             # production mode (stricter defaults)
 ```
 
 Check it three ways:

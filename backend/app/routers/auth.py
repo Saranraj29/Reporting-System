@@ -192,7 +192,7 @@ def register(body: RegisterIn):
     out: dict = {"message": "Account created", "verification_required": not verified}
     if not verified:
         token = _send_verification(user)
-        if get_settings().app_env != "prod":
+        if get_settings().dev_shortcuts:
             out["dev_verification_token"] = token  # convenience while no real mail server is attached
     return out
 
@@ -326,7 +326,7 @@ def resend_verification(body: ResendIn, db: Session = Depends(anon_db)):
     if row and row.is_active and row.email_verified_at is None:
         mail.queue_email(db, row.company_id, "verify_email", user_id=str(row.id))
         db.commit()
-        if get_settings().app_env != "prod":
+        if get_settings().dev_shortcuts:
             out["dev_verification_token"] = make_email_token("verify", 48, sub=str(row.id), company_id=str(row.company_id), email=row.email)
     return out
 
@@ -341,7 +341,7 @@ def forgot_password(body: ForgotIn, db: Session = Depends(anon_db)):
         )
         mail.queue_email(db, row.company_id, "password_reset", user_id=str(row.id))
         db.commit()
-        if get_settings().app_env != "prod":
+        if get_settings().dev_shortcuts:
             out["dev_reset_token"] = token
     return out
 
