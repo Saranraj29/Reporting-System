@@ -20,6 +20,7 @@ def enqueue(
     run_at: datetime | None = None,
     dedupe_key: str | None = None,
     queue: str | None = None,
+    max_attempts: int | None = None,
 ) -> bool:
     """Adds a job to the caller's transaction. Returns False if dedupe_key already exists.
     AI jobs (kind 'ai_*') go to the 'ai' lane so a slow model call never delays reminders, Slack or scheduled exports."""
@@ -30,6 +31,8 @@ def enqueue(
         "dedupe_key": dedupe_key,
         "queue": queue or ("ai" if kind.startswith("ai_") else "default"),
     }
+    if max_attempts:
+        values["max_attempts"] = max_attempts
     if run_at:
         values["run_at"] = run_at
     stmt = pg_insert(Job).values(**values).on_conflict_do_nothing(index_elements=["dedupe_key"]).returning(Job.id)

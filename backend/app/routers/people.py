@@ -91,6 +91,7 @@ def change_password(body: PasswordIn, ctx: Ctx = Depends(get_ctx)):
         raise bad_request("wrong_password", "The current password is not correct")
     ctx.me.password_hash = hash_password(body.new_password)
     ctx.me.refresh_version += 1  # other devices must sign in again
+    mail.queue_email(ctx.db, ctx.company_id, "password_changed", user_id=str(ctx.me.id), at=datetime.now(UTC).isoformat(), how="changed")
     ctx.db.commit()
 
 
@@ -227,9 +228,8 @@ def invite_user(body: InviteIn, ctx: Ctx = Depends(require("user.manage"))):
     _validate_roles(ctx, [role_id])
     token = make_email_token("invite", 24 * 7, email=body.email.lower(), company_id=str(ctx.company_id), role_id=str(role_id))
     link = f"{get_settings().public_web_url}/register?invite={token}"
-    mail.send_email(
-        body.email, f"{ctx.company.name} invited you", f"{ctx.me.name} invited you to join {ctx.company.name}:\n{link}\n"
-    )
+    mail.queue_email(ctx.db, ctx.company_id, "invite", to=body.email.lower(), role_id=str(role_id), inviter=ctx.me.name)
+    ctx.db.commit()
     out = {"message": "Invite sent", "email": body.email.lower()}
     if get_settings().app_env != "prod":
         out["dev_invite_link"] = link

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str | None = None
     smtp_password: str | None = None
+    smtp_security: str = "starttls"  # starttls (port 587) | ssl (port 465, implicit TLS) | none (a local relay only)
+    smtp_timeout: int = 20  # seconds, for connect and every command
+    email_reply_to: str | None = None  # where replies go (default: nowhere, mail is sent from a no-reply address)
 
     # LLM for report drafting. ai_provider: auto (first configured key wins) | anthropic | openai | gemini | none.
     # A company can override provider/model/key in Settings; these are the platform defaults.

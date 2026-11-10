@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
 from sqlalchemy import delete, func, select, text
 
+from ..config import get_settings
 from ..deps import Ctx, Page, get_ctx, paged, pagination, require, require_any
-from ..errors import bad_request, conflict, not_found
+from ..errors import ApiError, bad_request, conflict, not_found
 from ..models import (
     Client,
     ClientContact,
@@ -281,12 +282,37 @@ def _settings_out(ctx: Ctx) -> dict:
     if admin and c.slack_webhook_url:
         url = decrypt(c.slack_webhook_url) or ""
         out["slack_webhook_hint"] = (url[:28] + "…" + url[-4:]) if url else None  # never return the full secret
+    if admin:  # how e-mail leaves the system; the password is never part of this
+        from ..services import mail
+
+        st = get_settings()
+        out["email"] = {
+            "backend": st.email_backend, "from": st.email_from, "host": st.smtp_host if st.email_backend == "smtp" else None,
+            "port": st.smtp_port if st.email_backend == "smtp" else None, "security": st.smtp_security if st.email_backend == "smtp" else None,
+            "problems": mail.config_problems(),
+        }
     return out
 
 
 @router.get("/settings")
 def get_settings_route(ctx: Ctx = Depends(get_ctx)):
     return _settings_out(ctx)
+
+
+@router.post("/settings/test-email")
+def test_email(ctx: Ctx = Depends(require("settings.manage"))):
+    """Sends a test message to the admin's own address, right now, so a wrong host / password / sender is found in seconds (not after a user waits)."""
+    from ..services import mail, mail_templates
+
+    st = get_settings()
+    subject, text, html = mail_templates.test_email(ctx.company.name)
+    try:
+        mail.send_email(ctx.me.email, subject, text, html)
+    except mail.MailError as exc:
+        raise ApiError(502, "email_failed", str(exc)) from None
+    if st.email_backend == "console":
+        return {"ok": True, "delivered": False, "message": "Development mode: the email was written to the server log, not delivered. Set EMAIL_BACKEND=smtp to send real email."}
+    return {"ok": True, "delivered": True, "message": f"A test email was sent to {ctx.me.email}. Check the inbox (and the spam folder)."}
 
 
 @router.patch("/settings")

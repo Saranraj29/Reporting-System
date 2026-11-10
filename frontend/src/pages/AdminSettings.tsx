@@ -17,10 +17,36 @@ export default function AdminSettings() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Company" /><Tab label="Task fields" /><Tab label="Notification log" />
       </Tabs>
-      {tab === 0 && <><Company /><AiUsageCard /></>}
+      {tab === 0 && <><Company /><EmailCard /><AiUsageCard /></>}
       {tab === 1 && <Fields />}
       {tab === 2 && <Log />}
     </>
+  )
+}
+
+function EmailCard() {
+  const s = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/settings') })
+  const test = useMutation({ mutationFn: () => api.post<{ ok: boolean; delivered: boolean; message: string }>('/settings/test-email') })
+  const e = s.data?.email
+  if (!e) return null
+  const real = e.backend === 'smtp'
+  return (
+    <Paper sx={{ p: 3, maxWidth: 720, mt: 2.5 }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Email delivery</Typography>
+        <Chip size="small" color={real ? 'success' : 'warning'} variant="outlined" label={real ? 'Real email' : 'Development mode'} />
+      </Stack>
+      <Typography variant="body2" color="text.secondary">
+        {real ? `Sent through ${e.host}:${e.port} (${e.security}) as ${e.from}.` : 'Emails are only written to the server log, nobody receives them. Set the mail server in the environment (EMAIL_BACKEND=smtp) to send real email.'}
+      </Typography>
+      {e.problems.map((p) => <Alert key={p} severity="warning" sx={{ mt: 1 }}>{p}</Alert>)}
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 2 }}>
+        <Button variant="outlined" onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? 'Sending…' : 'Send a test email to me'}</Button>
+        <Typography variant="caption" color="text.secondary">Goes to your own address, right now.</Typography>
+      </Stack>
+      <ErrorAlert error={test.error} />
+      {test.data && <Alert severity={test.data.delivered ? 'success' : 'info'} sx={{ mt: 1 }}>{test.data.message}</Alert>}
+    </Paper>
   )
 }
 

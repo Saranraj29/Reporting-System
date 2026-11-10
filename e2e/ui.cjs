@@ -251,6 +251,10 @@ const navLinks = async (page) => (await page.locator('nav a').allInnerTexts()).m
     await page.getByRole('link', { name: 'Settings' }).click()
     await page.getByLabel('Company name').waitFor()
     await shot(page, '18-admin-settings')
+    await page.getByText('Email delivery').waitFor()
+    await page.getByRole('button', { name: 'Send a test email to me' }).click()
+    await page.getByText(/Development mode: the email was written to the server log/).waitFor()
+    check(true, 'Settings shows how email is sent and a test email can be sent from there')
     await ctx.close()
   }
 

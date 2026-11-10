@@ -106,9 +106,14 @@ def _session_payload(user_id, company_id) -> dict:
 
 
 def _send_verification(user: User) -> str:
+    """Queues the verification e-mail (the worker mints its own link). Returns a token only for the development shortcut in the response."""
     token = make_email_token("verify", 48, sub=str(user.id), company_id=str(user.company_id), email=user.email)
-    link = f"{get_settings().public_web_url}/verify-email?token={token}"
-    mail.send_email(user.email, "Verify your email", f"Hi {user.name},\n\nConfirm your email address:\n{link}\n")
+    db = new_session()
+    try:
+        mail.queue_email(db, user.company_id, "verify_email", user_id=str(user.id))
+        db.commit()
+    finally:
+        db.close()
     return token
 
 
@@ -309,6 +314,23 @@ def verify_email(body: TokenIn):
     return {"message": "Email verified"}
 
 
+class ResendIn(BaseModel):
+    email: EmailStr
+
+
+@router.post("/resend-verification", dependencies=limited)
+def resend_verification(body: ResendIn, db: Session = Depends(anon_db)):
+    """Always answers the same, so it cannot be used to find out who has an account."""
+    row = _user_by_email(db, body.email)
+    out: dict = {"message": "If that account is waiting for verification, a new email is on its way"}
+    if row and row.is_active and row.email_verified_at is None:
+        mail.queue_email(db, row.company_id, "verify_email", user_id=str(row.id))
+        db.commit()
+        if get_settings().app_env != "prod":
+            out["dev_verification_token"] = make_email_token("verify", 48, sub=str(row.id), company_id=str(row.company_id), email=row.email)
+    return out
+
+
 @router.post("/forgot-password", dependencies=limited)
 def forgot_password(body: ForgotIn, db: Session = Depends(anon_db)):
     row = _user_by_email(db, body.email)
@@ -317,8 +339,8 @@ def forgot_password(body: ForgotIn, db: Session = Depends(anon_db)):
         token = make_email_token(
             "reset", 1, sub=str(row.id), company_id=str(row.company_id), fp=password_fingerprint(row.password_hash)
         )
-        link = f"{get_settings().public_web_url}/reset-password?token={token}"
-        mail.send_email(row.email, "Reset your password", f"Use this link within one hour:\n{link}\n")
+        mail.queue_email(db, row.company_id, "password_reset", user_id=str(row.id))
+        db.commit()
         if get_settings().app_env != "prod":
             out["dev_reset_token"] = token
     return out
@@ -339,6 +361,7 @@ def reset_password(body: ResetIn):
         user.password_hash = hash_password(body.password)
         user.refresh_version += 1
         user.email_verified_at = user.email_verified_at or datetime.now(UTC)
+        mail.queue_email(db, user.company_id, "password_changed", user_id=str(user.id), at=datetime.now(UTC).isoformat(), how="reset")
         db.commit()
     finally:
         db.close()

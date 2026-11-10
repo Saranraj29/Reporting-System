@@ -15,6 +15,7 @@ from ..models import (
     Company,
     DailyStatus,
     Job,
+    NotificationLog,
     Project,
     ProjectMember,
     ReportRun,
@@ -31,7 +32,7 @@ from ..models import (
 from . import jobs, mail, runs, storage
 from .access import load_permissions
 from .notify import deliver
-from .timeutil import company_today
+from .timeutil import company_today, tzinfo
 
 log = logging.getLogger("handlers")
 Handler = Callable[[Session, Job], None]
@@ -412,3 +413,48 @@ def ai_retention(db: Session, job: Job) -> None:
     db.execute(text("DELETE FROM ai_conversations WHERE updated_at < now() - interval '30 days'"))
     db.execute(text("DELETE FROM ai_calls WHERE created_at < now() - interval '90 days'"))
     db.execute(text("UPDATE ai_feedback SET reason = '' WHERE created_at < now() - interval '90 days' AND reason <> ''"))
+
+
+# ------------------------------------------------------------------------------ transactional e-mail
+@handler("email.send")
+def email_send(db: Session, job: Job) -> None:
+    """verify_email | password_reset | invite | password_changed | test. The token and link are minted here, at send time. A failure raises, so the
+    queue retries (5 attempts); the final failure is written to the notification log by `_email_failed`."""
+    from ..security import make_email_token, password_fingerprint
+    from . import mail_templates as tpl
+
+    p, kind = job.payload, job.payload["kind"]
+    company = _company(db, job)
+    web = get_settings().public_web_url
+    user = db.get(User, uuid.UUID(p["user_id"])) if p.get("user_id") else None
+    if kind in ("verify_email", "password_reset", "password_changed") and (user is None or not user.is_active):
+        return
+    if kind == "verify_email":
+        if user.email_verified_at is not None:
+            return  # verified in the meantime
+        token = make_email_token("verify", 48, sub=str(user.id), company_id=str(user.company_id), email=user.email)
+        to, (subject, text, html) = user.email, tpl.verify_email(user.name, f"{web}/verify-email?token={token}")
+    elif kind == "password_reset":
+        token = make_email_token("reset", 1, sub=str(user.id), company_id=str(user.company_id), fp=password_fingerprint(user.password_hash))
+        to, (subject, text, html) = user.email, tpl.password_reset(user.name, f"{web}/reset-password?token={token}")
+    elif kind == "invite":
+        token = make_email_token("invite", 24 * 7, email=p["to"].lower(), company_id=str(company.id), role_id=p["role_id"])
+        to, (subject, text, html) = p["to"], tpl.invite(p["inviter"], company.name, f"{web}/register?invite={token}")
+    elif kind == "password_changed":
+        at = datetime.fromisoformat(p["at"])
+        zone = tzinfo(company.timezone)
+        to, (subject, text, html) = user.email, tpl.password_changed(user.name, at.astimezone(zone), company.timezone, f"{web}/forgot-password", p.get("how", "changed"))
+    else:
+        raise RuntimeError(f"unknown email kind {kind}")
+    mail.send_email(to, subject, text, html)
+    db.add(NotificationLog(company_id=company.id, user_id=user.id if user else None, kind=f"email.{kind}", channel="email", status="sent",
+                           payload={"subject": subject, "to": mail.mask(to)}))
+
+
+def _email_failed(db: Session, job: Job, error: str) -> None:
+    p = job.payload
+    db.add(NotificationLog(company_id=job.company_id, user_id=uuid.UUID(p["user_id"]) if p.get("user_id") else None, kind=f"email.{p.get('kind')}", channel="email",
+                           status="failed", error=error[:500], payload={"to": mail.mask(p.get("to") or "") if p.get("to") else None}))
+
+
+ON_FAILURE["email.send"] = _email_failed

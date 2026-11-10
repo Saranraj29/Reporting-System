@@ -10,6 +10,7 @@ from .config import get_settings
 from .db import get_engine, session_scope
 from .errors import install_error_handlers
 from .routers import ai_admin, ai_reports, assistant, auth, dashboard, people, reports, setup, tasks
+from .services import mail
 from .services.tenancy import sync_permissions
 
 log = logging.getLogger("api")
@@ -27,6 +28,8 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     s = get_settings()
+    for problem in mail.config_problems():  # a mail setup that cannot work is said out loud at start-up, not found by a user who never got an email
+        logging.getLogger("mail").warning("email configuration: %s", problem)
     app = FastAPI(title="Project Transparency Platform", version="1.0.0", lifespan=lifespan,
                   docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
     app.add_middleware(

@@ -2,7 +2,7 @@ import { Alert, Box, Button, Divider, Link, Paper, Stack, TextField, Typography 
 import BusinessIcon from '@mui/icons-material/BusinessCenterOutlined'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom'
-import { api, errorMessage } from '../api'
+import { api, ApiError, errorMessage } from '../api'
 import { useAuth } from '../auth'
 import { PasswordField } from '../components/PasswordField'
 
@@ -63,22 +63,47 @@ function GoogleButton({ onToken }: { onToken: (credential: string) => void }) {
   )
 }
 
+/** "Resend verification email": the answer is always the same, so nobody can use it to find out who has an account. */
+function ResendVerification({ email }: { email: string }) {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | string>('idle')
+  const send = async () => {
+    setState('sending')
+    try {
+      await api.post('/auth/resend-verification', { email })
+      setState('sent')
+    } catch (err) {
+      setState(errorMessage(err))
+    }
+  }
+  return state === 'sent' ? (
+    <Alert severity="success">If that account is waiting for verification, a new email is on its way. Check your inbox and spam folder.</Alert>
+  ) : (
+    <>
+      <Button variant="outlined" onClick={send} disabled={!email || state === 'sending'}>{state === 'sending' ? 'Sending…' : 'Resend verification email'}</Button>
+      {state !== 'idle' && state !== 'sending' && <Alert severity="error" sx={{ mt: 1 }}>{state}</Alert>}
+    </>
+  )
+}
+
 export function Login() {
   const { login, loginWithToken } = useAuth()
   const nav = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [unverified, setUnverified] = useState(false)
   const [busy, setBusy] = useState(false)
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError(null)
+    setUnverified(false)
     try {
       await login(email, password)
       nav('/')
     } catch (err) {
       setError(errorMessage(err))
+      setUnverified(err instanceof ApiError && err.code === 'email_not_verified')
     } finally {
       setBusy(false)
     }
@@ -90,6 +115,7 @@ export function Login() {
           <TextField label="Work email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required autoFocus />
           <PasswordField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
           {error && <Alert severity="error">{error}</Alert>}
+          {unverified && <ResendVerification email={email} />}
           <Button type="submit" variant="contained" size="large" disabled={busy}>
             Sign in
           </Button>
@@ -157,9 +183,12 @@ export function Register() {
             Development mode: <Link component={RouterLink} to={`/verify-email?token=${done.token}`}>verify now</Link>
           </Alert>
         )}
-        <Button component={RouterLink} to="/login" variant="contained" fullWidth>
-          Go to sign in
-        </Button>
+        <Stack spacing={1.5}>
+          {done.verify && <ResendVerification email={form.email} />}
+          <Button component={RouterLink} to="/login" variant="contained" fullWidth>
+            Go to sign in
+          </Button>
+        </Stack>
       </Shell>
     )
   }

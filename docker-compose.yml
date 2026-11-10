@@ -27,6 +27,9 @@ x-api-env: &api-env
   EMAIL_FROM: ${EMAIL_FROM:-Project Transparency <no-reply@example.com>}
   SMTP_HOST: ${SMTP_HOST:-localhost}
   SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURITY: ${SMTP_SECURITY:-starttls}  # starttls (587) | ssl (465) | none
+  SMTP_TIMEOUT: ${SMTP_TIMEOUT:-20}
+  EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
   SMTP_USER: ${SMTP_USER:-}
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   STORAGE_DIR: /data/files

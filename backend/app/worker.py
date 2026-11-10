@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 from .config import get_settings
 from .db import new_session
 from .models import ReportTemplate
-from .services import jobs
+from .services import jobs, mail
 from .services.handlers import HANDLERS, ON_FAILURE
 from .services.timeutil import company_now
 
@@ -119,6 +119,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     s = get_settings()
+    for problem in mail.config_problems():
+        log.warning("email configuration: %s", problem)
     log.info("worker started (lane: %s)", args.queue or "all")
     last_tick = 0.0
     while True:

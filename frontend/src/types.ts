@@ -207,6 +207,7 @@ export interface Settings {
   slack_configured: boolean
   slack_webhook_hint?: string
   ai_enabled: boolean
+  email?: { backend: 'console' | 'smtp'; from: string; host: string | null; port: number | null; security: string | null; problems: string[] }
 }
 export interface AiUsage {
   since: string
