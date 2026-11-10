@@ -53,15 +53,46 @@ def config_problems() -> list[str]:
     return out
 
 
+def _connect_v4_first(host: str, port: int, timeout: float, source=None) -> socket.socket:
+    """Connects to `host`, trying its IPv4 addresses before its IPv6 ones. Inside Docker Desktop (Windows / Mac) IPv6 often looks reachable and then drops the
+    connection ("Connection unexpectedly closed"); the default order (IPv6 first) never falls back from that."""
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    infos.sort(key=lambda i: i[0] != socket.AF_INET)  # stable: IPv4 first, the rest in the resolver's order
+    last: OSError | None = None
+    for family, socktype, proto, _, addr in infos:
+        sock = socket.socket(family, socktype, proto)
+        sock.settimeout(timeout)
+        try:
+            if source:
+                sock.bind(source)
+            sock.connect(addr)
+            return sock
+        except OSError as exc:
+            last = exc
+            sock.close()
+    raise last or OSError(f"no address found for {host}")
+
+
+def _v4_first(base: type) -> type:
+    """`base` (SMTP or SMTP_SSL) with the IPv4-first connect. Same class name, so logs and tests still read naturally."""
+    def plain(self, host, port, timeout):
+        return _connect_v4_first(host, port, timeout, self.source_address)
+
+    def tls(self, host, port, timeout):
+        return self.context.wrap_socket(_connect_v4_first(host, port, timeout, self.source_address), server_hostname=self._host)
+
+    return type(base.__name__, (base,), {"_get_socket": tls if issubclass(base, smtplib.SMTP_SSL) else plain})
+
+
 def _open_smtp(s) -> smtplib.SMTP:
     """Opens the connection. If a step fails, the exception carries which step (`_mail_stage`), so 'connection closed' can say WHERE it closed."""
     stage = "connecting to the server"
     try:
         ctx = ssl.create_default_context()
         if s.smtp_security == "ssl":
-            smtp: smtplib.SMTP = smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout, context=ctx)
+            smtp: smtplib.SMTP = _v4_first(smtplib.SMTP_SSL)(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout, context=ctx)
         else:
-            smtp = smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout)
+            smtp = _v4_first(smtplib.SMTP)(s.smtp_host, s.smtp_port, timeout=s.smtp_timeout)
             stage = "saying hello (EHLO)"
             smtp.ehlo()
             if s.smtp_security == "starttls":

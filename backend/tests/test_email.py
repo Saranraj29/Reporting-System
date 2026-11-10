@@ -284,3 +284,33 @@ def test_a_dropped_connection_says_where_it_dropped(monkeypatch):
         mail.send_email("to@x.test", "s", "t")
     msg = str(e.value)
     assert "closed the connection while starting TLS (STARTTLS)" in msg and "SMTP_PORT=465" in msg and "firewall" in msg and "s3cret-pw" not in msg
+
+
+def test_ipv4_addresses_are_tried_before_ipv6(monkeypatch):
+    """Docker Desktop's IPv6 accepts a connection and then drops it; the sender must reach for IPv4 first."""
+    import socket
+
+    tried = []
+
+    class FakeSock:
+        def __init__(self, family, *a):
+            self.family = family
+
+        def settimeout(self, t):
+            pass
+
+        def connect(self, addr):
+            tried.append(addr[0])
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, type=0: [
+        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2404:6800::6d", port, 0, 0)), (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("74.125.0.1", port))])
+    monkeypatch.setattr(socket, "socket", FakeSock)
+    assert mail._connect_v4_first("smtp.example.test", 587, 5).family == socket.AF_INET
+    assert tried == ["74.125.0.1"]  # IPv6 was never needed
+    tried.clear()
+    monkeypatch.setattr(FakeSock, "connect", lambda self, addr: (_ for _ in ()).throw(OSError("no route")) if self.family == socket.AF_INET else tried.append(addr[0]))
+    assert mail._connect_v4_first("smtp.example.test", 587, 5).family == socket.AF_INET6  # IPv6 is still the fallback when IPv4 does not connect
+    assert mail._v4_first(smtplib.SMTP).__name__ == "SMTP" and mail._v4_first(smtplib.SMTP_SSL).__name__ == "SMTP_SSL"
