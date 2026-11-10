@@ -19,7 +19,8 @@ import TuneIcon from '@mui/icons-material/TuneOutlined'
 import Diversity3Icon from '@mui/icons-material/Diversity3Outlined'
 import { AppBar, Avatar, Box, ButtonBase, Divider, Drawer, Fab, GlobalStyles, IconButton, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { canOpen } from '../access'
 import { useAuth } from '../auth'
 import { initials } from '../format'
 import { HeaderTimer } from '../timer'
@@ -83,22 +84,23 @@ export function Layout() {
   const left = !mobile && navOpen ? WIDTH : 0
   const right = docked ? ASSISTANT_WIDTH : 0
 
+  const who = { can, hasAny, me }
   const main: Item[] = [
     { to: '/', label: 'Dashboard', icon: <DashboardIcon />, show: hasAny('dashboard.view') },
-    { to: '/tasks', label: 'Tasks', icon: <TaskIcon />, show: hasAny('task.view') },
-    { to: '/my-day', label: 'My day', icon: <TimerIcon />, show: hasAny('task.view', 'status.view') },
-    { to: '/check-ins', label: 'Check-ins', icon: <GroupsIcon />, show: can('status.view.team') || can('status.view.all') },
-    { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, show: hasAny('report.weekly.view', 'report.monthly.view', 'report.performance.view', 'report.visibility.view') },
-    { to: '/ai-reports', label: 'AI reports', icon: <AutoAwesomeIcon />, show: can('report.ai.draft') || !!me?.owns_projects },
+    { to: '/tasks', label: 'Tasks', icon: <TaskIcon />, show: canOpen('/tasks', who) },
+    { to: '/my-day', label: 'My day', icon: <TimerIcon />, show: canOpen('/my-day', who) },
+    { to: '/check-ins', label: 'Check-ins', icon: <GroupsIcon />, show: canOpen('/check-ins', who) },
+    { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, show: canOpen('/reports', who) },
+    { to: '/ai-reports', label: 'AI reports', icon: <AutoAwesomeIcon />, show: canOpen('/ai-reports', who) },
   ]
   const admin: Item[] = [
-    { to: '/admin/users', label: 'Users', icon: <PeopleIcon />, show: can('user.manage') },
-    { to: '/admin/roles', label: 'Roles & permissions', icon: <AdminPanelSettingsIcon />, show: can('role.manage') },
-    { to: '/admin/projects', label: 'Projects', icon: <FolderIcon />, show: can('project.manage') },
-    { to: '/admin/clients', label: 'Clients', icon: <DomainIcon />, show: can('project.manage') },
-    { to: '/admin/teams', label: 'Teams', icon: <Diversity3Icon />, show: can('project.manage') },
+    { to: '/admin/users', label: 'Users', icon: <PeopleIcon />, show: canOpen('/admin/users', who) },
+    { to: '/admin/roles', label: 'Roles & permissions', icon: <AdminPanelSettingsIcon />, show: canOpen('/admin/roles', who) },
+    { to: '/admin/projects', label: 'Projects', icon: <FolderIcon />, show: canOpen('/admin/projects', who) },
+    { to: '/admin/clients', label: 'Clients', icon: <DomainIcon />, show: canOpen('/admin/clients', who) },
+    { to: '/admin/teams', label: 'Teams', icon: <Diversity3Icon />, show: canOpen('/admin/teams', who) },
   ]
-  const settings: Item = { to: '/admin/settings', label: 'Settings', icon: <SettingsIcon />, show: can('settings.manage') }
+  const settings: Item = { to: '/admin/settings', label: 'Settings', icon: <SettingsIcon />, show: canOpen('/admin/settings', who) }
 
   const signOut = async () => {
     setAnchor(null)
@@ -212,7 +214,7 @@ export function Layout() {
         {drawer}
       </Drawer>
       <Box component="main" sx={{ flex: 1, minWidth: 0, p: { xs: 2, md: 3.5 }, pt: { xs: 10, md: 11 }, pb: { xs: 11, md: 11 }, transition: slide, mr: `${right}px` }}>
-        <Outlet />
+        {canOpen(pathname, who) ? <Outlet /> : <Navigate to="/" replace />}  {/* a page the person has no access to cannot be opened by typing its address */}
       </Box>
       <Tooltip title="Add today's status" placement="left">
         <Fab color="primary" aria-label="Add daily status" onClick={() => setStatusOpen(true)} sx={{ position: 'fixed', bottom: 24, right: 24 + right, transition: slide, zIndex: 1050 }}>

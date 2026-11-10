@@ -23,6 +23,14 @@ from .coder import NameCoder
 log = logging.getLogger("ai")
 USER_PER_MINUTE = 10
 HISTORY_MESSAGES = 12
+MAX_CONVERSATION_MESSAGES = 60  # 30 questions: after that the person starts a new chat (keeps each thread focused, answers do not drift)
+TITLE_LENGTH = 60
+
+
+def make_title(text: str) -> str:
+    """The conversation title: the first question, on one line, shortened."""
+    one_line = " ".join(text.split())
+    return one_line if len(one_line) <= TITLE_LENGTH else one_line[: TITLE_LENGTH - 1].rstrip() + "…"
 
 
 @dataclass
@@ -59,14 +67,17 @@ def prepare(ctx: Ctx, message: str, quick_action: str | None, conversation_id: u
     if ctx.db.execute(q.where(AiMessage.created_at >= day_start)).scalar_one() >= ctx.company.ai_daily_turn_quota:
         raise ApiError(429, "quota.turns", f"Your company has reached today's limit of {ctx.company.ai_daily_turn_quota} assistant questions. Try again tomorrow.")
     conv = ctx.db.get(AiConversation, conversation_id) if conversation_id else None
+    shown = message.strip() if quick_action is None else quick.REQUEST_TEXT[quick_action]
     if conv is None or conv.user_id != ctx.me.id:
-        conv = AiConversation(company_id=ctx.company_id, user_id=ctx.me.id, summary={})
+        conv = AiConversation(company_id=ctx.company_id, user_id=ctx.me.id, summary={}, title=make_title(shown))
         ctx.db.add(conv)
         ctx.db.flush()
+    elif ctx.db.execute(select(func.count()).select_from(AiMessage).where(AiMessage.conversation_id == conv.id)).scalar_one() >= MAX_CONVERSATION_MESSAGES:
+        raise ApiError(409, "conversation_full", "This conversation has got long. Start a new chat to keep the answers focused; this one stays in your history.")
     history = [{"role": m.role, "text": m.text} for m in reversed(ctx.db.execute(
         select(AiMessage).where(AiMessage.conversation_id == conv.id).order_by(AiMessage.created_at.desc()).limit(HISTORY_MESSAGES)).scalars().all())]
-    shown = message.strip() if quick_action is None else quick.REQUEST_TEXT[quick_action]
     ctx.db.add(AiMessage(company_id=ctx.company_id, conversation_id=conv.id, user_id=ctx.me.id, role="user", text=shown))
+    conv.updated_at = func.now()  # the thread moves to the top of the history even if the answer fails
     ctx.db.commit()
     return TurnPlan(str(ctx.company_id), ctx.me.id, ctx.perms, conv.id, shown, quick_action, page, context, history, dict(conv.summary or {}), now.date(), cfg)
 

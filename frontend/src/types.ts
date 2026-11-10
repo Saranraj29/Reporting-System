@@ -60,6 +60,7 @@ export interface Project {
   end_date: string | null
   member_ids: string[]
   owner_ids: string[]
+  can_add_tasks?: boolean  // false when the person does not work on the project (members add tasks only to their own projects)
 }
 export interface Client {
   id: string
@@ -238,19 +239,38 @@ export interface TimeOff {
   end_date: string
   note: string
 }
+export interface AiUsageGroup {
+  name: string
+  calls: number
+  errors: number
+  tokens: number
+  avg_latency_ms: number | null
+}
 export interface AiUsage {
+  period: string
   since: string
   status: string
   enabled: boolean
   calls: number
   errors: number
+  success_rate: number | null
   tokens: { input: number; output: number; cached: number }
   budget_used_pct: number | null
+  budget_tokens: number | null
+  month_tokens: number
   grounding_pass_rate: number | null
   fallback_rate: number | null
   repair_rate: number | null
   p95_latency_ms: number | null
+  latency_ms: { avg: number | null; p50: number | null; p95: number | null }
+  daily: { date: string; calls: number; errors: number; tokens: number }[]
+  by_feature: AiUsageGroup[]
+  by_model: AiUsageGroup[]
+  errors_by_code: { code: string; count: number }[]
   thumbs: { up: number; down: number }
+  satisfaction: number | null
+  thumbs_down_reasons: { reason: string; count: number }[]
+  today: { turns: number; reports: number }
   quota: { reports_per_day: number; turns_per_day: number }
 }
 export interface Comment {
@@ -332,6 +352,7 @@ export interface AssistantMessage {
   progress?: string
   error?: string
   created_at?: string
+  rating?: 'up' | 'down' | null  // my own vote on this answer
 }
 export interface AssistantStatus {
   status: 'ready' | 'unavailable'
@@ -340,5 +361,13 @@ export interface AssistantStatus {
   quick_actions_enabled: boolean
   cards: AssistantCard[]
   conversation_id: string | null
+  conversation_title?: string
   messages: AssistantMessage[]
+}
+/** One row of the assistant's chat history. */
+export interface AssistantConversation {
+  id: string
+  title: string
+  updated_at: string
+  message_count: number
 }

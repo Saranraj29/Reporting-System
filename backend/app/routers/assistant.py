@@ -1,16 +1,18 @@
-"""AI assistant (read-only): status + quick actions, chat over server-sent events, feedback on answers, the current conversation."""
+"""AI assistant (read-only): status + quick actions, chat over server-sent events, feedback on answers, and the person's conversations
+(a history they can reopen, rename and delete; nobody else, admins included, can read them)."""
 
 import json
 import queue
 import threading
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 from ..ai import policy
 from ..ai.assistant import quick, service
@@ -20,6 +22,8 @@ from ..models import AiConversation, AiFeedback, AiMessage
 
 router = APIRouter(tags=["assistant"])
 PAGES = ("dashboard", "tasks", "my-day", "check-ins", "other")
+RESUME_WITHIN = timedelta(hours=2)  # opening the panel continues the last conversation only if it was active this recently; otherwise a fresh chat
+HISTORY_LIMIT = 100
 
 
 def _status(ctx: Ctx) -> dict[str, Any]:
@@ -32,12 +36,74 @@ def status(page: str = "other", ctx: Ctx = Depends(require("assistant.use"))):
     page = page if page in PAGES else "other"
     st = _status(ctx)
     conv = ctx.db.execute(select(AiConversation).where(AiConversation.user_id == ctx.me.id).order_by(AiConversation.updated_at.desc()).limit(1)).scalar_one_or_none()
-    messages = []
-    if conv is not None:
-        rows = ctx.db.execute(select(AiMessage).where(AiMessage.conversation_id == conv.id).order_by(AiMessage.created_at.desc()).limit(40)).scalars().all()
-        messages = [{"id": str(m.id), "role": m.role, "text": m.text, "card": m.card, "created_at": m.created_at.isoformat()} for m in reversed(rows)]
+    if conv is not None and datetime.now(UTC) - conv.updated_at > RESUME_WITHIN:
+        conv = None  # an old thread is not dragged into today's questions: it waits in the history
+    messages = _messages(ctx, conv.id)[-40:] if conv else []
     return {**st, "cards": quick.cards_for(page) if st["quick_actions_enabled"] else [{**c, "enabled": False} for c in quick.cards_for(page)],
-            "conversation_id": str(conv.id) if conv else None, "messages": messages}
+            "conversation_id": str(conv.id) if conv else None, "conversation_title": conv.title if conv else "", "messages": messages}
+
+
+def _messages(ctx: Ctx, conversation_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = ctx.db.execute(select(AiMessage).where(AiMessage.conversation_id == conversation_id).order_by(AiMessage.created_at)).scalars().all()
+    rated = dict(ctx.db.execute(select(AiFeedback.target_id, AiFeedback.rating).where(
+        AiFeedback.target_type == "answer", AiFeedback.created_by == ctx.me.id, AiFeedback.target_id.in_([m.id for m in rows]))).all())  # my own votes, so they show again on reopening
+    return [{"id": str(m.id), "role": m.role, "text": m.text, "card": m.card, "created_at": m.created_at.isoformat(),
+             "rating": None if m.id not in rated else ("up" if rated[m.id] > 0 else "down")} for m in rows]
+
+
+def _mine(ctx: Ctx, conversation_id: uuid.UUID) -> AiConversation:
+    conv = ctx.db.get(AiConversation, conversation_id)
+    if conv is None or conv.user_id != ctx.me.id:
+        raise not_found("Conversation")
+    return conv
+
+
+@router.get("/assistant/conversations")
+def list_conversations(ctx: Ctx = Depends(require("assistant.use"))):
+    """My conversations, newest first. Old ones disappear with the 30-day retention of assistant records."""
+    counts = select(AiMessage.conversation_id, func.count().label("n")).group_by(AiMessage.conversation_id).subquery()
+    rows = ctx.db.execute(
+        select(AiConversation, func.coalesce(counts.c.n, 0)).outerjoin(counts, counts.c.conversation_id == AiConversation.id)
+        .where(AiConversation.user_id == ctx.me.id).order_by(AiConversation.updated_at.desc()).limit(HISTORY_LIMIT)
+    ).all()
+    untitled = [c.id for c, _ in rows if not c.title]  # threads from before titles existed: use their first question
+    first: dict[uuid.UUID, str] = {}
+    if untitled:
+        for cid, text in ctx.db.execute(select(AiMessage.conversation_id, AiMessage.text).where(AiMessage.conversation_id.in_(untitled), AiMessage.role == "user").order_by(AiMessage.created_at)):
+            first.setdefault(cid, text)
+    return {"items": [{"id": str(c.id), "title": c.title or service.make_title(first.get(c.id, "")) or "New chat", "updated_at": c.updated_at.isoformat(), "message_count": n} for c, n in rows]}
+
+
+@router.get("/assistant/conversations/{conversation_id}")
+def get_conversation(conversation_id: uuid.UUID, ctx: Ctx = Depends(require("assistant.use"))):
+    conv = _mine(ctx, conversation_id)
+    messages = _messages(ctx, conv.id)
+    return {"id": str(conv.id), "title": conv.title, "messages": messages, "full": len(messages) >= service.MAX_CONVERSATION_MESSAGES}
+
+
+class RenameIn(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+
+
+@router.patch("/assistant/conversations/{conversation_id}")
+def rename_conversation(conversation_id: uuid.UUID, body: RenameIn, ctx: Ctx = Depends(require("assistant.use"))):
+    conv = _mine(ctx, conversation_id)
+    conv.title = " ".join(body.title.split())
+    ctx.db.commit()
+    return {"id": str(conv.id), "title": conv.title}
+
+
+@router.delete("/assistant/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: uuid.UUID, ctx: Ctx = Depends(require("assistant.use"))):
+    ctx.db.delete(_mine(ctx, conversation_id))  # its messages go with it
+    ctx.db.commit()
+
+
+@router.delete("/assistant/conversations", status_code=204)
+def clear_history(ctx: Ctx = Depends(require("assistant.use"))):
+    """Delete all of my conversations."""
+    ctx.db.execute(delete(AiConversation).where(AiConversation.user_id == ctx.me.id))
+    ctx.db.commit()
 
 
 class ChatIn(BaseModel):

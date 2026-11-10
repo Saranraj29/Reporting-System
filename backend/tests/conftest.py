@@ -157,6 +157,8 @@ def org(client):
     admin.put(f"/teams/{team['id']}/members", {"user_ids": [lead.user_id, m1.user_id, m2.user_id]}).raise_for_status()
     client_ = admin.post("/clients", {"name": "Globex", "contact_name": "Gina Globex", "contact_email": "gina@globex.com"}).json()
     project = admin.post("/projects", {"name": "Apollo", "client_id": client_["id"]}).json()
+    # people may only add tasks to projects they work on
+    admin.put(f"/projects/{project['id']}/members", {"user_ids": [lead.user_id, m1.user_id, m2.user_id, out.user_id]}).raise_for_status()
     return type("Org", (), dict(
         client=client, admin=admin, mgr=mgr, lead=lead, m1=m1, m2=m2, out=out, team=team, globex=client_, project=project,
     ))

@@ -323,7 +323,8 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
 
                   {canLog && t.assignees.length > 0 && (
                     <>
-                      <Paper sx={{ p: 1.25, mb: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, bgcolor: runningHere ? '#fff5f5' : '#fff', borderColor: runningHere ? '#ffc9c9' : undefined }}>
+                      {/* the side panel is narrow: let the text and the button wrap onto their own lines instead of squeezing each other */}
+                      <Paper sx={{ p: 1.25, mt: 1, mb: 1.5, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1, '& .MuiButton-root': { whiteSpace: 'nowrap', flexShrink: 0 }, bgcolor: runningHere ? '#fff5f5' : '#fff', borderColor: runningHere ? '#ffc9c9' : undefined }}>
                         {runningHere && running?.started_at ? (
                           <>
                             <Box><Typography variant="caption" color="error" sx={{ fontWeight: 700 }}>TIMER RUNNING</Typography><Typography variant="h6" sx={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>{elapsed(running.started_at, now)}</Typography></Box>
@@ -343,11 +344,11 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                       </Paper>
                       {(start.error || stop.error) && <Alert severity="error" sx={{ mb: 1 }}>{errorMessage(start.error ?? stop.error)}</Alert>}
                       <Typography variant="caption" color="text.secondary">Log time manually</Typography>
-                      <Stack direction="row" spacing={0.75} sx={{ mt: 0.5 }}>
-                        <TextField size="small" type="number" label="Hours" value={log.hours} onChange={(e) => setLog({ ...log, hours: e.target.value })} sx={{ width: 104 }} inputProps={{ min: 0.25, max: 24, step: 0.25 }} />
-                        <TextField size="small" label="Note" value={log.note} onChange={(e) => setLog({ ...log, note: e.target.value })} fullWidth />
-                        <Button variant="contained" size="small" disabled={!log.hours || logTime.isPending} onClick={() => logTime.mutate()}>Add</Button>
-                      </Stack>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 0.75, mt: 0.75 }}>
+                        <TextField size="small" type="number" label="Hours" value={log.hours} onChange={(e) => setLog({ ...log, hours: e.target.value })} inputProps={{ min: 0.25, max: 24, step: 0.25 }} />
+                        <TextField size="small" label="Note" value={log.note} onChange={(e) => setLog({ ...log, note: e.target.value })} />
+                        <Button variant="contained" size="small" sx={{ gridColumn: '1 / -1' }} disabled={!log.hours || logTime.isPending} onClick={() => logTime.mutate()}>Add time</Button>
+                      </Box>
                       {logTime.error && <Alert severity="error" sx={{ mt: 1 }}>{errorMessage(logTime.error)}</Alert>}
                     </>
                   )}

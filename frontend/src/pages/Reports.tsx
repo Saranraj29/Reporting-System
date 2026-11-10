@@ -3,12 +3,14 @@ import DownloadIcon from '@mui/icons-material/Download'
 import ArticleIcon from '@mui/icons-material/ArticleOutlined'
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import TableChartIcon from '@mui/icons-material/TableChartOutlined'
-import { Alert, Box, Button, CircularProgress, LinearProgress, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, LinearProgress, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { api } from '../api'
+import LinkedFilters from '../components/LinkedFilters'
 import { Empty, ErrorAlert, PageHeader, ReportFrame, RunStatusChip } from '../components/ui'
+import { NONE, type Sel } from '../filters'
 import { fmtDate, fmtDateTime } from '../format'
 import { useTeams } from '../hooks'
 import type { Page, Project, ReportInfo, RunDetail, RunSummary, UserLite } from '../types'
@@ -18,9 +20,8 @@ export default function Reports() {
   const projects = useQuery({ queryKey: ['projects', 'all'], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200 }) })
   const [tab, setTab] = useState(0)
   const [range, setRange] = useState<{ from: string; to: string } | null>(null)
-  const [project, setProject] = useState('')
-  const [person, setPerson] = useState('')
-  const [team, setTeam] = useState('')
+  const [sel, setSel] = useState<Sel>(NONE)  // team / project / person narrow each other, see LinkedFilters
+  const { team, project, user: person } = sel
   const teams = useTeams()
   const users = useQuery({ queryKey: ['users', 'all'], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200 }) })
   const info = list.data?.items[tab]
@@ -61,20 +62,7 @@ export default function Reports() {
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
           <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={range?.from ?? ''} onChange={(e) => setRange({ from: e.target.value, to: range?.to ?? e.target.value })} />
           <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={range?.to ?? ''} onChange={(e) => setRange({ from: range?.from ?? e.target.value, to: e.target.value })} />
-          {teams.length > 0 && (
-            <TextField select size="small" label="Team" value={team} onChange={(e) => setTeam(e.target.value)} sx={{ minWidth: 160 }}>
-              <MenuItem value="">All teams</MenuItem>
-              {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
-            </TextField>
-          )}
-          <TextField select size="small" label="Project" value={project} onChange={(e) => setProject(e.target.value)} sx={{ minWidth: 180 }}>
-            <MenuItem value="">All projects</MenuItem>
-            {projects.data?.items.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
-          </TextField>
-          <TextField select size="small" label="Person" value={person} onChange={(e) => setPerson(e.target.value)} sx={{ minWidth: 190 }}>
-            <MenuItem value="">Everyone in scope</MenuItem>
-            {users.data?.items.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
-          </TextField>
+          <LinkedFilters value={sel} onChange={setSel} teams={teams} projects={projects.data?.items ?? []} users={users.data?.items ?? []} everyone="Everyone in scope" widths={[160, 180, 190]} />
         </Stack>
       </Paper>
       <ErrorAlert error={report.error ?? exp.error} />

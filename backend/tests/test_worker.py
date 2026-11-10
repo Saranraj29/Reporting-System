@@ -140,6 +140,7 @@ def test_job_handlers_run_in_the_right_tenant(org, client, owner_conn):
     b = signup_admin(client, "globex.com", "Globex")
     add_user(b, "Zed Lead", "Team Lead", domain="globex.com")
     p = org.admin.post("/projects", {"name": "P"}).json()
+    org.admin.put(f"/projects/{p['id']}/members", {"user_ids": [org.m1.user_id]})  # members add tasks only to their own projects
     t = org.m1.post("/tasks", {"project_id": p["id"], "title": "Blocked thing"}).json()
     mail.outbox.clear()
     org.m1.patch(f"/tasks/{t['id']}", {"status": "blocked"}).raise_for_status()

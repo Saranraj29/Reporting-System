@@ -10,6 +10,7 @@ import { api, errorMessage } from '../api'
 import { useAuth } from '../auth'
 import { TaskPanel } from '../components/TaskPanel'
 import { AssigneeAvatars, Empty, ErrorAlert, PageHeader, PriorityChip, SearchBox, StatusChip } from '../components/ui'
+import { change, personOptions, projectOptions, teamOptions, type Sel } from '../filters'
 import { fmtDate, hours } from '../format'
 import { useSearch } from '../hooks'
 import { STATUS_LABELS } from '../theme'
@@ -41,6 +42,16 @@ export default function Tasks() {
   const [openId, setOpenId] = useState<string | null>(null)
   const canEdit = hasAny('task.edit')
   const showPeople = (useAuth().me?.permissions ?? []).some((p) => p === 'task.view.team' || p === 'task.view.all')
+  // team / project / assignee narrow each other (see filters.ts); picking one clears the others it no longer fits
+  const sel: Sel = { team: f.team, project: f.project, user: f.assignee }
+  const linked = { teams, projects, users: showPeople ? users : undefined }
+  const link = (key: keyof Sel, value: string) => {
+    const n = change(sel, key, value, linked)
+    upd({ team: n.team, project: n.project, assignee: n.user })
+  }
+  const teamOpts = teamOptions(linked, sel)
+  const projectOpts = projectOptions(linked, sel)
+  const personOpts = personOptions(linked, sel)
 
   const q = useQuery({
     queryKey: ['tasks', page, f, search.term],
@@ -61,15 +72,17 @@ export default function Tasks() {
             <SearchBox value={search.input} onChange={search.setInput} placeholder="Search tasks" width="100%" />
           </Grid>
           <Grid item xs={6} md={2}>
-            <TextField select size="small" fullWidth label="Project" value={f.project} onChange={(e) => upd({ project: e.target.value })}>
+            <TextField select size="small" fullWidth label="Project" value={f.project} onChange={(e) => link('project', e.target.value)}>
               <MenuItem value="">All</MenuItem>
-              {projects.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+              {projectOpts.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+              {projectOpts.length === 0 && <MenuItem disabled value="__none">No projects for this selection</MenuItem>}
             </TextField>
           </Grid>
           <Grid item xs={6} md={1.5}>
-            <TextField select size="small" fullWidth label="Team" value={f.team} onChange={(e) => upd({ team: e.target.value })}>
+            <TextField select size="small" fullWidth label="Team" value={f.team} onChange={(e) => link('team', e.target.value)}>
               <MenuItem value="">All</MenuItem>
-              {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+              {teamOpts.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+              {teamOpts.length === 0 && <MenuItem disabled value="__none">No teams for this selection</MenuItem>}
             </TextField>
           </Grid>
           <Grid item xs={6} md={1.5}>
@@ -86,9 +99,10 @@ export default function Tasks() {
           </Grid>
           {showPeople && (
             <Grid item xs={6} md={2}>
-              <TextField select size="small" fullWidth label="Assignee" value={f.assignee} onChange={(e) => upd({ assignee: e.target.value })}>
+              <TextField select size="small" fullWidth label="Assignee" value={f.assignee} onChange={(e) => link('user', e.target.value)}>
                 <MenuItem value="">Anyone</MenuItem>
-                {users.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+                {personOpts.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+                {personOpts.length === 0 && <MenuItem disabled value="__none">No people for this selection</MenuItem>}
               </TextField>
             </Grid>
           )}
@@ -148,19 +162,31 @@ export default function Tasks() {
 export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () => void }) {
   const qc = useQueryClient()
   const { me } = useAuth()
-  const { projects, users, fields } = useLookups()
+  const { projects, fields } = useLookups()
   const defs = Object.fromEntries(fields.map((f) => [f.key, f]))
   const visible = (key: string) => defs[key]?.is_active !== false
   const [form, setForm] = useState({
     project_id: task?.project_id ?? '', title: task?.title ?? '', description: task?.description ?? '', activity_type: task?.activity_type ?? 'Development',
     priority: task?.priority ?? 'medium', status: task?.status ?? 'todo', eta_hours: task?.eta_hours?.toString() ?? '', start_date: task?.start_date ?? '', due_date: task?.due_date ?? '',
   })
-  const [assignees, setAssignees] = useState<UserLite[]>([])
+  const [assignees, setAssignees] = useState<UserLite[]>(task ? task.assignees.map((a) => ({ id: a.id, name: a.name, email: '' }) as UserLite) : [])
   const [custom, setCustom] = useState<Record<string, unknown>>(task?.custom_fields ?? {})
+  // who this person may give a task of the chosen project to: themselves, their team, or (project owner) the project's members
+  const assignable = useQuery({
+    queryKey: ['assignable-users', form.project_id],
+    queryFn: () => api.get<{ can_add_tasks: boolean; items: UserLite[] }>(`/projects/${form.project_id}/assignable-users`),
+    enabled: !!form.project_id,
+  })
+  const options = assignable.data?.items ?? []
   useEffect(() => {
-    if (task) setAssignees(users.filter((u) => task.assignees.some((a) => a.id === u.id)))
-    else if (me) setAssignees(users.filter((u) => u.id === me.id))
-  }, [users.length]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!assignable.data) return
+    const allowed = new Set(assignable.data.items.map((u) => u.id))
+    setAssignees((prev) => {
+      const kept = prev.filter((a) => allowed.has(a.id))
+      const mine = me ? assignable.data.items.filter((u) => u.id === me.id) : []
+      return !task && kept.length === 0 ? mine : kept  // a new task starts assigned to me
+    })
+  }, [assignable.data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useMutation({
     mutationFn: async () => {
@@ -195,7 +221,7 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
           <Grid item xs={12} md={4}>
             <TextField select label="Project" fullWidth required value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })}
               helperText={form.project_id && projects.find((p) => p.id === form.project_id)?.team_name ? `Team: ${projects.find((p) => p.id === form.project_id)?.team_name} (from the project)` : ' '}>
-              {projects.filter((p) => p.status !== 'archived').map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+              {projects.filter((p) => p.status !== 'archived' && (p.can_add_tasks !== false || p.id === task?.project_id)).map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
             </TextField>
           </Grid>
           {visible('description') && (
@@ -238,7 +264,7 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
             </Grid>
           )}
           <Grid item xs={12} md={6}>
-            <Autocomplete multiple options={users} value={assignees} onChange={(_, v) => setAssignees(v)} getOptionLabel={(u) => u.name} isOptionEqualToValue={(a, b) => a.id === b.id} renderInput={(p) => <TextField {...p} label="Assignees" helperText="One or more people" />} />
+            <Autocomplete multiple options={options} value={assignees} onChange={(_, v) => setAssignees(v)} getOptionLabel={(u) => u.name} isOptionEqualToValue={(a, b) => a.id === b.id} renderInput={(p) => <TextField {...p} label="Assignees" helperText={form.project_id ? (options.length > 1 ? 'One or more people' : 'You can assign tasks to yourself') : 'Choose a project first'} />} />
           </Grid>
           {customFields.length > 0 && (
             <>

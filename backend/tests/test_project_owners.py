@@ -10,6 +10,7 @@ def proj(org):
     """Apollo (owner: Mia) has tasks from Max and Olive; Hermes (no owner) has one from Olive."""
     o = org
     hermes = o.admin.post("/projects", {"name": "Hermes"}).json()
+    o.admin.put(f"/projects/{hermes['id']}/members", {"user_ids": [o.out.user_id]})
     mk = lambda api, project, title: api.post("/tasks", {"project_id": project["id"], "title": title}).json()  # noqa: E731
     o.t_mia = mk(o.m1, o.project, "Mia task")
     o.t_max = mk(o.m2, o.project, "Max task in Apollo")
@@ -50,12 +51,19 @@ def test_owner_sees_all_tasks_in_their_project_only(proj):
     assert len(human) == 1
 
 
-def test_owner_view_does_not_grant_edit_rights(proj):
-    make_owner(proj, proj.m1)
+def test_owner_manages_the_tasks_of_their_own_project_only(proj):
+    proj.admin.put(f"/projects/{proj.project['id']}/members", {"user_ids": [proj.m2.user_id], "owner_ids": [proj.m1.user_id]}).raise_for_status()  # Mia owns Apollo, Max is a member
     detail = proj.m1.get(f"/tasks/{proj.t_max['id']}").json()
-    assert detail["can_edit"] is False
-    assert proj.m1.patch(f"/tasks/{proj.t_max['id']}", {"title": "hijacked"}).status_code == 403
-    assert proj.m1.delete(f"/tasks/{proj.t_max['id']}").status_code == 403
+    assert detail["can_edit"] is True
+    assert proj.m1.patch(f"/tasks/{proj.t_max['id']}", {"title": "Renamed by the owner"}).status_code == 200
+    assert proj.m1.put(f"/tasks/{proj.t_max['id']}/assignees", {"user_ids": [proj.m2.user_id, proj.m1.user_id]}).status_code == 200
+    assert proj.m1.put(f"/tasks/{proj.t_max['id']}/assignees", {"user_ids": [proj.out.user_id]}).status_code == 403  # Olive is not on Apollo any more
+    assert proj.m1.delete(f"/tasks/{proj.t_olive['id']}").status_code == 204
+    # ... but ownership of Apollo gives nothing in Hermes, where she is not even a member
+    assert proj.m1.get(f"/tasks/{proj.t_hermes['id']}").status_code == 404
+    assert proj.m1.patch(f"/tasks/{proj.t_hermes['id']}", {"title": "nope"}).status_code == 404
+    # and a plain member still cannot touch someone else's task
+    assert proj.m2.patch(f"/tasks/{proj.t_mia['id']}", {"title": "hijacked"}).status_code in (403, 404)
 
 
 def test_owner_sees_time_entries_of_everyone_in_the_project(proj):

@@ -242,3 +242,30 @@ def test_usage_page_data(work, monkeypatch):
     assert u["grounding_pass_rate"] == 1.0 and u["fallback_rate"] == 0.0 and u["p95_latency_ms"] is not None
     assert u["quota"]["reports_per_day"] == 50
     assert work.mgr.get("/ai/usage").status_code == 403
+
+
+def test_usage_dashboard_data_by_day_feature_and_quota(work, monkeypatch, owner_conn):
+    fake_llm(monkeypatch, plan=PLAN)
+    rep = create(work.admin, work)
+    work.admin.post(f"/ai-reports/{rep['id']}/approve")
+    drain()
+    work.admin.post(f"/ai-reports/{rep['id']}/feedback", {"rating": "up"})
+    owner_conn.execute("update ai_calls set error_code = 'provider_error' where id = (select id from ai_calls limit 1)")  # one failed call
+    u = work.admin.get("/ai/usage", params={"period": "7"}).json()
+    assert u["period"] == "7" and len(u["daily"]) == 7 and u["daily"][-1]["calls"] == u["calls"] == 2  # a point per day, today last, quiet days are zeros
+    assert sum(d["calls"] for d in u["daily"][:-1]) == 0 and u["daily"][-1]["errors"] == 1 and u["daily"][-1]["tokens"] == u["tokens"]["input"] + u["tokens"]["output"]
+    assert u["errors"] == 1 and u["success_rate"] == 0.5 and u["errors_by_code"] == [{"code": "provider_error", "count": 1}]
+    assert {f["name"]: f["calls"] for f in u["by_feature"]} == {"report.plan": 1, "report.write": 1} and sum(f["errors"] for f in u["by_feature"]) == 1
+    assert u["by_model"] and u["latency_ms"]["p50"] is not None and u["latency_ms"]["avg"] is not None
+    assert u["thumbs"] == {"up": 1, "down": 0} and u["satisfaction"] == 1.0 and u["thumbs_down_reasons"] == []
+    assert u["today"] == {"turns": 0, "reports": 1} and u["quota"]["reports_per_day"] == 50
+    month = work.admin.get("/ai/usage").json()  # the default period is this month, from the 1st
+    assert month["period"] == "month" and month["since"].endswith("-01") and month["calls"] == 2 and month["month_tokens"] == u["month_tokens"]
+    assert work.admin.get("/ai/usage", params={"period": "365"}).status_code == 422
+    assert work.mgr.get("/ai/usage", params={"period": "30"}).status_code == 403
+
+
+def test_usage_dashboard_is_empty_but_complete_without_any_call(org):
+    u = org.admin.get("/ai/usage", params={"period": "30"}).json()
+    assert u["calls"] == 0 and u["success_rate"] is None and u["satisfaction"] is None and u["latency_ms"] == {"avg": None, "p50": None, "p95": None}
+    assert len(u["daily"]) == 30 and not any(d["calls"] for d in u["daily"]) and u["by_feature"] == [] and u["errors_by_code"] == []

@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import select, union
 from sqlalchemy.orm import Session
 
-from ..models import ProjectMember, RolePermission, Team, TeamMember, UserRole
+from ..models import Project, ProjectMember, RolePermission, Team, TeamMember, UserRole
 from ..perms import best_scope
 
 _CACHE: dict[uuid.UUID, tuple[float, frozenset[str]]] = {}
@@ -59,3 +59,31 @@ def owned_project_ids(db: Session, user_id: uuid.UUID) -> list[uuid.UUID]:
     """Projects the user owns. Owners see every task, comment and time entry in those projects,
     regardless of who created or is assigned to them (view access; editing still follows task.edit.*)."""
     return list(db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == user_id, ProjectMember.is_owner.is_(True))).scalars())
+
+
+def member_project_ids(db: Session, user_id: uuid.UUID) -> set[uuid.UUID]:
+    """Projects the user works on: member or owner."""
+    return set(db.execute(select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)).scalars())
+
+
+def my_team_ids(db: Session, user_id: uuid.UUID) -> set[uuid.UUID]:
+    """Teams I lead or belong to."""
+    return set(db.execute(union(select(Team.id).where(Team.lead_user_id == user_id), select(TeamMember.team_id).where(TeamMember.user_id == user_id))).scalars())
+
+
+def project_people(db: Session, project_id: uuid.UUID) -> set[uuid.UUID]:
+    """Members and owners of a project."""
+    return set(db.execute(select(ProjectMember.user_id).where(ProjectMember.project_id == project_id)).scalars())
+
+
+def task_project_ids(db: Session, user_id: uuid.UUID, scope: str | None) -> set[uuid.UUID] | None:
+    """Projects the user may add tasks to (None = every project). Everyone: the projects they are a member or owner of; a team lead / team
+    scope also the projects of the teams they lead or belong to; the 'all' scope every project."""
+    if scope == "all":
+        return None
+    ids = member_project_ids(db, user_id)
+    if scope == "team":
+        teams = my_team_ids(db, user_id)
+        if teams:
+            ids |= set(db.execute(select(Project.id).where(Project.team_id.in_(teams))).scalars())
+    return ids

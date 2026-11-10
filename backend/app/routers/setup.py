@@ -20,10 +20,12 @@ from ..models import (
     Role,
     TaskFieldDefinition,
     Team,
+    TeamMember,
     User,
 )
 from ..security import decrypt, encrypt
 from ..services import reminders
+from ..services.access import task_project_ids
 from ..services.timeutil import valid_timezone
 from .auth import PUBLIC_DOMAINS
 
@@ -80,6 +82,14 @@ def _check_team(ctx: Ctx, team_id: uuid.UUID | None) -> None:
         raise bad_request("invalid_team", "Team does not exist")
 
 
+def _join_team(ctx: Ctx, team_id: uuid.UUID | None, user_ids) -> None:
+    """People who work on a project belong to the project's team: add the ones who are not members of it yet (nobody is ever removed)."""
+    if not team_id or not user_ids:
+        return
+    already = set(ctx.db.execute(select(TeamMember.user_id).where(TeamMember.team_id == team_id, TeamMember.user_id.in_(user_ids))).scalars())
+    ctx.db.add_all(TeamMember(company_id=ctx.company_id, team_id=team_id, user_id=u) for u in set(user_ids) - already)
+
+
 def _team_name(ctx: Ctx, team_id: uuid.UUID | None) -> str | None:
     return ctx.db.execute(select(Team.name).where(Team.id == team_id)).scalar_one_or_none() if team_id else None
 
@@ -103,8 +113,11 @@ def list_projects(
     rows = ctx.db.execute(stmt.limit(page.limit).offset(page.offset)).all()
     ids = [p.id for p, _, _ in rows]
     members, owners = _members(ctx, ids), _members(ctx, ids, owners_only=True)
+    scope = ctx.scope_of("task.edit")
+    addable = task_project_ids(ctx.db, ctx.me.id, scope) if scope else set()  # None = every project
     return {
-        "items": [_project_out(p, cn, members.get(p.id), owners.get(p.id), tn) for p, cn, tn in rows],
+        "items": [{**_project_out(p, cn, members.get(p.id), owners.get(p.id), tn), "can_add_tasks": addable is None or p.id in addable}
+                  for p, cn, tn in rows],
         "total": total, "page": page.page, "limit": page.limit,
     }
 
@@ -131,10 +144,13 @@ def patch_project(project_id: uuid.UUID, body: ProjectPatch, ctx: Ctx = Depends(
         _check_client(ctx, data["client_id"])
     if data.get("team_id"):
         _check_team(ctx, data["team_id"])
+    team_changed = data.get("team_id") and data["team_id"] != p.team_id
     for k, v in data.items():
         if k in ("name", "status") and v is None:
             continue
         setattr(p, k, v)
+    if team_changed:  # a project moved to a team brings its current members along
+        _join_team(ctx, p.team_id, [u for ids in _members(ctx, [p.id]).values() for u in map(uuid.UUID, ids)])
     ctx.db.commit()
     return _project_out(p, members=_members(ctx, [p.id]).get(p.id), owners=_members(ctx, [p.id], owners_only=True).get(p.id), team_name=_team_name(ctx, p.team_id))
 
@@ -157,7 +173,8 @@ def get_project_members(project_id: uuid.UUID, ctx: Ctx = Depends(get_ctx)):
 @router.put("/projects/{project_id}/members")
 def set_project_members(project_id: uuid.UUID, body: ProjectMembersIn, ctx: Ctx = Depends(require("project.manage"))):
     """Replaces the member list. Owners get view access to every task in this project (whoever created or is assigned)."""
-    if not ctx.db.get(Project, project_id):
+    project = ctx.db.get(Project, project_id)
+    if not project:
         raise not_found("Project")
     owners = set(body.owner_ids)
     ids = set(body.user_ids) | owners
@@ -165,6 +182,7 @@ def set_project_members(project_id: uuid.UUID, body: ProjectMembersIn, ctx: Ctx 
         raise bad_request("invalid_user", "One or more users do not exist")
     ctx.db.execute(delete(ProjectMember).where(ProjectMember.project_id == project_id))
     ctx.db.add_all(ProjectMember(company_id=ctx.company_id, project_id=project_id, user_id=u, is_owner=u in owners) for u in ids)
+    _join_team(ctx, project.team_id, ids)  # added to the project = added to its team
     ctx.db.commit()
     return {"user_ids": [str(u) for u in ids], "owner_ids": [str(u) for u in owners]}
 

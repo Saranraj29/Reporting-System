@@ -10,7 +10,9 @@ import { useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api } from '../api'
 import { useAuth } from '../auth'
+import LinkedFilters from '../components/LinkedFilters'
 import { Empty, ErrorAlert, PageHeader, PriorityChip, StatCard } from '../components/ui'
+import { NONE, type Sel } from '../filters'
 import { daysAgo, fmtShort, hours, today } from '../format'
 import { CHART, STATUS_COLORS, STATUS_LABELS } from '../theme'
 import { useTeams } from '../hooks'
@@ -30,10 +32,9 @@ function Card({ title, children, height }: { title: string; children: React.Reac
 export default function Dashboard() {
   const { hasAny, me } = useAuth()
   const [range, setRange] = useState(30)
-  const [project, setProject] = useState('')
-  const [team, setTeam] = useState('')
+  const [sel, setSel] = useState<Sel>(NONE)  // team / project / person narrow each other, see LinkedFilters
+  const { team, project, user } = sel
   const teams = useTeams()
-  const [user, setUser] = useState('')
   const multiUser = hasAny('dashboard.view') && (me?.permissions ?? []).some((p) => p === 'dashboard.view.team' || p === 'dashboard.view.all')
 
   const projects = useQuery({ queryKey: ['projects', 'all'], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200 }) })
@@ -60,22 +61,7 @@ export default function Dashboard() {
               <MenuItem value={30}>Last 30 days</MenuItem>
               <MenuItem value={90}>Last 90 days</MenuItem>
             </TextField>
-            {teams.length > 0 && (
-              <TextField select size="small" label="Team" value={team} onChange={(e) => setTeam(e.target.value)} sx={{ minWidth: 150 }}>
-                <MenuItem value="">All teams</MenuItem>
-                {teams.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
-              </TextField>
-            )}
-            <TextField select size="small" label="Project" value={project} onChange={(e) => setProject(e.target.value)} sx={{ minWidth: 150 }}>
-              <MenuItem value="">All projects</MenuItem>
-              {projects.data?.items.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
-            </TextField>
-            {multiUser && (
-              <TextField select size="small" label="Person" value={user} onChange={(e) => setUser(e.target.value)} sx={{ minWidth: 160 }}>
-                <MenuItem value="">Everyone</MenuItem>
-                {users.data?.items.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
-              </TextField>
-            )}
+            <LinkedFilters value={sel} onChange={setSel} teams={teams} projects={projects.data?.items ?? []} users={multiUser ? users.data?.items ?? [] : undefined} />
           </>
         }
       />

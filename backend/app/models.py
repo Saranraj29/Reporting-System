@@ -395,6 +395,7 @@ class AiConversation(Base):
     id: Mapped[uuid.UUID] = _pk()
     company_id: Mapped[uuid.UUID] = _cid()
     user_id: Mapped[uuid.UUID] = _fk("users")
+    title: Mapped[str] = mapped_column(Text, default="")  # from the first question; the person may rename it
     summary: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

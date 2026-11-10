@@ -85,3 +85,35 @@ def test_search_filters(work):
     assert [c["name"] for c in a.get("/clients", params={"q": "gina"}).json()["items"]] == ["Globex"]
     assert [t["name"] for t in a.get("/teams", params={"q": "cor"}).json()["items"]] == ["Core"]
     assert a.get("/teams", params={"q": "zzz"}).json()["items"] == []
+
+
+# ------------------------------------------------------------------ project members join the project's team
+def team_members(api, team_id):
+    return set(next(t for t in api.get("/teams").json()["items"] if t["id"] == team_id)["member_ids"])
+
+
+def test_people_added_to_a_project_join_its_team(org):
+    team = org.admin.post("/teams", {"name": "Data"}).json()
+    p = org.admin.post("/projects", {"name": "Pipeline", "team_id": team["id"]}).json()
+    assert team_members(org.admin, team["id"]) == set()
+    assert org.admin.put(f"/projects/{p['id']}/members", {"user_ids": [org.m1.user_id], "owner_ids": [org.lead.user_id]}).status_code == 200
+    assert team_members(org.admin, team["id"]) == {org.m1.user_id, org.lead.user_id}  # members and owners both
+    # adding again, or someone who is already in the team, does not duplicate or fail
+    assert org.admin.put(f"/projects/{p['id']}/members", {"user_ids": [org.m1.user_id, org.m2.user_id]}).status_code == 200
+    assert team_members(org.admin, team["id"]) == {org.m1.user_id, org.lead.user_id, org.m2.user_id}
+    # taking someone off the project does not throw them out of the team (they may work on its other projects)
+    org.admin.put(f"/projects/{p['id']}/members", {"user_ids": [org.m1.user_id]})
+    assert org.m2.user_id in team_members(org.admin, team["id"])
+
+
+def test_moving_a_project_to_a_team_brings_its_members_along(org):
+    p = org.admin.post("/projects", {"name": "Site"}).json()  # no team yet
+    org.admin.put(f"/projects/{p['id']}/members", {"user_ids": [org.m1.user_id, org.m2.user_id]})
+    team = org.admin.post("/teams", {"name": "Web"}).json()
+    assert team_members(org.admin, team["id"]) == set()  # a project without a team changes nothing
+    org.admin.patch(f"/projects/{p['id']}", {"team_id": team["id"]}).raise_for_status()
+    assert team_members(org.admin, team["id"]) == {org.m1.user_id, org.m2.user_id}
+    other = org.admin.post("/teams", {"name": "Design"}).json()
+    org.admin.patch(f"/projects/{p['id']}", {"team_id": other["id"]}).raise_for_status()
+    assert team_members(org.admin, other["id"]) == {org.m1.user_id, org.m2.user_id}
+    assert team_members(org.admin, team["id"]) == {org.m1.user_id, org.m2.user_id}  # the old team keeps them

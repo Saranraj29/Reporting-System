@@ -309,6 +309,13 @@ def test_feedback_on_an_answer(work, owner_conn):
     assert work.admin.post(f"/assistant/messages/{mid}/feedback", {"rating": "down", "reason": "too short"}).status_code == 204
     assert owner_conn.execute("select target_type, rating, reason from ai_feedback").fetchall() == [("answer", -1, "too short")]
     assert work.m1.post(f"/assistant/messages/{mid}/feedback", {"rating": "up"}).status_code == 404  # not their message
+    # the person's own vote comes back with the conversation (so the thumb is still lit after reopening), and can be changed
+    cid = next(d["conversation_id"] for n, d in ev if n == "done")
+    rating = lambda: next(m["rating"] for m in work.admin.get(f"/assistant/conversations/{cid}").json()["messages"] if m["id"] == mid)  # noqa: E731
+    assert rating() == "down"
+    work.admin.post(f"/assistant/messages/{mid}/feedback", {"rating": "up"}).raise_for_status()
+    assert rating() == "up" and owner_conn.execute("select count(*) from ai_feedback").fetchone()[0] == 1  # one vote per person and answer
+    assert [m["rating"] for m in work.admin.get(f"/assistant/conversations/{cid}").json()["messages"] if m["role"] == "user"] == [None]
 
 
 def test_stored_records_hold_no_row_data_and_are_purged(work, owner_conn):

@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import TimeOffCard from '../components/TimeOffCard'
+import AiUsagePage from './AiUsage'
 import { Empty, ErrorAlert, PageHeader } from '../components/ui'
 import { fmtDateTime } from '../format'
-import type { AiUsage, Page, ReminderConfig, RemindersSettings, Settings, TaskField } from '../types'
+import type { Page, ReminderConfig, RemindersSettings, Settings, TaskField } from '../types'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const ZONES = ['UTC', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Dubai', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Australia/Sydney']
@@ -16,12 +17,13 @@ export default function AdminSettings() {
     <>
       <PageHeader title="Settings" subtitle="Everything here is configuration stored as data — no deployment needed" />
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label="Company" /><Tab label="Reminders" /><Tab label="Task fields" /><Tab label="Notification log" />
+        <Tab label="Company" /><Tab label="Reminders" /><Tab label="AI usage" /><Tab label="Task fields" /><Tab label="Notification log" />
       </Tabs>
-      {tab === 0 && <><Company /><EmailCard /><AiUsageCard /></>}
+      {tab === 0 && <><Company /><EmailCard /></>}
       {tab === 1 && <RemindersTab />}
-      {tab === 2 && <Fields />}
-      {tab === 3 && <Log />}
+      {tab === 2 && <AiUsagePage />}
+      {tab === 3 && <Fields />}
+      {tab === 4 && <Log />}
     </>
   )
 }
@@ -48,25 +50,6 @@ function EmailCard() {
       </Stack>
       <ErrorAlert error={test.error} />
       {test.data && <Alert severity={test.data.delivered ? 'success' : 'info'} sx={{ mt: 1 }}>{test.data.message}</Alert>}
-    </Paper>
-  )
-}
-
-function AiUsageCard() {
-  const u = useQuery({ queryKey: ['ai-usage'], queryFn: () => api.get<AiUsage>('/ai/usage') })
-  if (!u.data) return null
-  const d = u.data
-  const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)}%`)
-  return (
-    <Paper sx={{ p: 3, maxWidth: 720, mt: 2.5 }}>
-      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>AI usage this month</Typography>
-      <Typography variant="caption" color="text.secondary">Since {d.since}. Counts only — no report text is stored here.</Typography>
-      <Stack direction="row" spacing={3} sx={{ mt: 1.5 }} flexWrap="wrap" useFlexGap>
-        {[['Calls', String(d.calls)], ['Failed calls', String(d.errors)], ['Tokens', (d.tokens.input + d.tokens.output).toLocaleString()], ['Checked against data', pct(d.grounding_pass_rate)],
-          ['Standard wording used', pct(d.fallback_rate)], ['Slowest 5%', d.p95_latency_ms === null ? '—' : `${(d.p95_latency_ms / 1000).toFixed(1)} s`], ['Thumbs up / down', `${d.thumbs.up} / ${d.thumbs.down}`]].map(([k, v]) => (
-          <div key={k}><Typography variant="h6" sx={{ fontWeight: 700 }}>{v}</Typography><Typography variant="caption" color="text.secondary">{k}</Typography></div>
-        ))}
-      </Stack>
     </Paper>
   )
 }

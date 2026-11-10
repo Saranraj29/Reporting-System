@@ -15,8 +15,33 @@ let accessToken: string | null = null
 let refreshing: Promise<boolean> | null = null
 let onAuthLost: () => void = () => {}
 
+/** Expiry of a JWT access token in ms since the epoch, or null when the value is not a readable JWT. */
+export function tokenExpiry(token: string | null): number | null {
+  if (!token) return null
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+// The access token lives 15 minutes. Renew it a minute BEFORE it runs out, so no request ever goes out with an expired one
+// (that would show up as a failed 401 request in the browser console, even though the retry after a refresh works).
+const REFRESH_EARLY_MS = 60_000
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
+
+function scheduleRefresh() {
+  clearTimeout(refreshTimer)
+  const exp = tokenExpiry(accessToken)
+  if (exp === null) return
+  // a failed renewal changes nothing here: the next request meets the 401 and handles it (retry, or sign out when the session is really gone)
+  refreshTimer = setTimeout(() => void refreshSession(), Math.max(exp - Date.now() - REFRESH_EARLY_MS, 5_000))
+}
+
 export const setToken = (t: string | null) => {
   accessToken = t
+  scheduleRefresh()
 }
 export const getToken = () => accessToken
 export const setAuthLostHandler = (fn: () => void) => {
@@ -35,6 +60,14 @@ export async function refreshSession(): Promise<boolean> {
       refreshing = null
     })
   return refreshing
+}
+
+// a sleeping laptop or a long-hidden tab may have missed the timer: renew as soon as the page is shown again
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    const exp = tokenExpiry(accessToken)
+    if (document.visibilityState === 'visible' && exp !== null && exp - Date.now() < REFRESH_EARLY_MS) void refreshSession()
+  })
 }
 
 type Params = Record<string, string | number | boolean | undefined | null>

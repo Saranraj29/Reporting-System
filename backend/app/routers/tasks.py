@@ -24,7 +24,7 @@ from ..models import (
     User,
 )
 from ..services import jobs
-from ..services.access import owned_project_ids
+from ..services.access import my_team_ids, owned_project_ids, project_people, task_project_ids
 from ..services.timeutil import company_today, tzinfo
 
 router = APIRouter(tags=["tasks"])
@@ -65,6 +65,8 @@ def _visible_task(ctx: Ctx, task_id: uuid.UUID) -> Task:
 def _can_edit(ctx: Ctx, task: Task) -> bool:
     if not ctx.scope_of("task.edit"):
         return False
+    if task.project_id in owned_project_ids(ctx.db, ctx.me.id):  # a project owner manages every task of the project
+        return True
     ids = ctx.visible("task.edit")
     if ids is None:
         return True
@@ -166,16 +168,37 @@ def _check_activity(defs: list[TaskFieldDefinition], value: str) -> None:
         raise bad_request("invalid_activity_type", f"activity_type must be one of: {', '.join(d.options)}")
 
 
-def _check_assignees(ctx: Ctx, ids: list[uuid.UUID]) -> None:
+def _can_add_to(ctx: Ctx, project_id: uuid.UUID) -> bool:
+    """Members only work in their own projects, team leads also in their teams' projects, managers and admins everywhere."""
+    allowed = task_project_ids(ctx.db, ctx.me.id, ctx.scope_of("task.edit"))
+    return allowed is None or project_id in allowed
+
+
+def _assignable_ids(ctx: Ctx, project_id: uuid.UUID) -> set[uuid.UUID] | None:
+    """Who a task of this project may be given to (None = anyone): the people in my scope (me / my team / everyone); for a project
+    I own, and for a project of a team I lead or belong to (team scope), also every member of that project."""
+    allowed = ctx.visible("task.edit")
+    if allowed is None:
+        return None
+    if project_id in owned_project_ids(ctx.db, ctx.me.id):
+        return allowed | project_people(ctx.db, project_id)
+    if ctx.scope_of("task.edit") == "team":
+        team_id = ctx.db.execute(select(Project.team_id).where(Project.id == project_id)).scalar_one_or_none()
+        if team_id and team_id in my_team_ids(ctx.db, ctx.me.id):
+            return allowed | project_people(ctx.db, project_id)
+    return allowed
+
+
+def _check_assignees(ctx: Ctx, ids: list[uuid.UUID], project_id: uuid.UUID) -> None:
     unique = set(ids)
     if not unique:
         raise bad_request("assignee_required", "A task needs at least one assignee")
     active = set(ctx.db.execute(select(User.id).where(User.id.in_(unique), User.is_active.is_(True))).scalars())
     if active != unique:
         raise bad_request("invalid_assignee", "One or more assignees do not exist or are inactive")
-    allowed = ctx.visible("task.edit")
+    allowed = _assignable_ids(ctx, project_id)
     if allowed is not None and not unique <= allowed:
-        raise forbidden("You can only assign tasks to people within your scope")
+        raise forbidden("You can only assign tasks to yourself, your team, or the members of a project you own or your team's project")
 
 
 # --------------------------------------------------------------------------- tasks
@@ -268,12 +291,14 @@ def create_task(body: TaskIn, ctx: Ctx = Depends(require("task.edit"))):
         raise bad_request("invalid_project", "Project does not exist")
     if project.status == "archived":
         raise bad_request("project_archived", "Cannot add tasks to an archived project")
+    if not _can_add_to(ctx, project.id):
+        raise forbidden("You can only add tasks to projects you are a member of")
     defs = _field_defs(ctx)
     _check_activity(defs, body.activity_type)
     _check_dates(body.start_date, body.due_date)
     custom = validate_custom_fields(defs, body.custom_fields)
     assignees = body.assignee_ids or [ctx.me.id]
-    _check_assignees(ctx, assignees)
+    _check_assignees(ctx, assignees, project.id)
     task = Task(
         company_id=ctx.company_id, project_id=body.project_id, created_by=ctx.me.id, title=body.title.strip(),
         description=body.description, activity_type=body.activity_type, priority=body.priority,
@@ -286,6 +311,21 @@ def create_task(body: TaskIn, ctx: Ctx = Depends(require("task.edit"))):
     _note(ctx, task.id, "created this task")
     ctx.db.commit()
     return _task_out(ctx, [task])[0]
+
+
+@router.get("/projects/{project_id}/assignable-users")
+def assignable_users(project_id: uuid.UUID, ctx: Ctx = Depends(require("task.edit"))):
+    """For the task form: the projects' people I may give a task to, and whether I may add tasks to this project at all."""
+    if not ctx.db.get(Project, project_id):
+        raise not_found("Project")
+    ids = _assignable_ids(ctx, project_id)
+    stmt = select(User).where(User.is_active.is_(True)).order_by(User.name)
+    if ids is not None:
+        stmt = stmt.where(User.id.in_(ids))
+    return {
+        "can_add_tasks": _can_add_to(ctx, project_id),
+        "items": [{"id": str(u.id), "name": u.name, "email": u.email} for u in ctx.db.execute(stmt).scalars()],
+    }
 
 
 @router.get("/tasks/{task_id}")
@@ -306,6 +346,8 @@ def patch_task(task_id: uuid.UUID, body: TaskPatch, ctx: Ctx = Depends(require("
     if "project_id" in data and data["project_id"]:
         if not ctx.db.get(Project, data["project_id"]):
             raise bad_request("invalid_project", "Project does not exist")
+        if data["project_id"] != task.project_id and not _can_add_to(ctx, data["project_id"]):
+            raise forbidden("You can only move a task to a project you are a member of")
         task.project_id = data["project_id"]
     old_priority, old_due = task.priority, task.due_date
     for k in ("title", "description", "activity_type", "priority", "eta_hours", "start_date", "due_date"):
@@ -338,7 +380,7 @@ class AssigneesIn(BaseModel):
 @router.put("/tasks/{task_id}/assignees")
 def set_assignees(task_id: uuid.UUID, body: AssigneesIn, ctx: Ctx = Depends(require("task.edit"))):
     task = _editable_task(ctx, task_id)
-    _check_assignees(ctx, body.user_ids)
+    _check_assignees(ctx, body.user_ids, task.project_id)
     before = {a["id"] for a in _assignee_map(ctx, [task.id]).get(task.id, [])}
     ctx.db.execute(delete(TaskAssignee).where(TaskAssignee.task_id == task.id))
     ctx.db.add_all(TaskAssignee(company_id=ctx.company_id, task_id=task.id, user_id=u) for u in set(body.user_ids))
