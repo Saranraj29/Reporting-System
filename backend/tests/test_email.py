@@ -346,3 +346,17 @@ def test_a_rejected_password_is_reported_as_such_not_as_a_dropped_connection(mon
     with pytest.raises(mail.MailError) as e:
         mail.send_email("to@x.test", "s", "t")
     assert "rejected the username or password" in str(e.value) and "BadCredentials" in str(e.value) and "firewall" not in str(e.value)
+
+
+def test_gmail_specific_hints(monkeypatch, capsys):
+    smtp_env(monkeypatch, SMTP_HOST="smtp.gmail.com", SMTP_PASSWORD="abcd efgh ijkl mnop", EMAIL_FROM="Pt <other@acme.test>", SMTP_USER="me@gmail.com")
+    text = " ".join(mail.config_problems())
+    assert "19 characters" in text and "exactly 16" in text and "not the same address as SMTP_USER" in text
+    smtp_env(monkeypatch, SMTP_HOST="smtp.gmail.com", SMTP_PASSWORD="abcdefghijklmnop", EMAIL_FROM="Pt <me@gmail.com>", SMTP_USER="me@gmail.com")
+    assert mail.config_problems() == []
+    from app import mailcheck
+
+    monkeypatch.setattr(mail, "_open_smtp", lambda s: (_ for _ in ()).throw(TimeoutError("t")))
+    mailcheck.main(["a@b.test"])
+    out = capsys.readouterr().out
+    assert "user=m***@gmail.com" in out and "password=16 characters" in out and "abcdefghijklmnop" not in out

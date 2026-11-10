@@ -40,6 +40,10 @@ def config_problems() -> list[str]:
         out.append("SMTP_HOST is not set to your mail provider.")
     if not s.smtp_user or not s.smtp_password:
         out.append("SMTP_USER / SMTP_PASSWORD are not both set; most providers reject mail without them.")
+    if s.smtp_host.endswith("gmail.com") and s.smtp_password and len(s.smtp_password) != 16:
+        out.append(f"SMTP_PASSWORD has {len(s.smtp_password)} characters, but a Gmail App Password has exactly 16 letters: remove spaces, quotes and anything after it.")
+    if s.smtp_host.endswith("gmail.com") and s.smtp_user and s.smtp_user.lower() != _from_header(s)[1].lower():
+        out.append("EMAIL_FROM is not the same address as SMTP_USER; Gmail replaces or refuses a sender it does not own.")
     if s.smtp_security not in ("starttls", "ssl", "none"):
         out.append("SMTP_SECURITY must be starttls, ssl or none.")
     elif s.smtp_security == "none" and s.smtp_host not in ("localhost", "127.0.0.1"):
