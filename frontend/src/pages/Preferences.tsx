@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../api'
 import { useAuth } from '../auth'
+import TimeOffCard from '../components/TimeOffCard'
 import { ErrorAlert, PageHeader } from '../components/ui'
 import type { Me } from '../types'
 
@@ -25,10 +26,6 @@ export default function Preferences() {
       <Paper sx={{ p: 3, maxWidth: 640 }}>
         <Stack spacing={2.5}>
           <Stack>
-            <FormControlLabel control={<Switch checked={p.email_reminders} onChange={(e) => change({ email_reminders: e.target.checked })} />} label="Email me reminders" />
-            <Typography variant="caption" color="text.secondary">Morning-plan, end-of-day, due-date and team-overdue reminders. Account emails (verify email, password reset) are always sent.</Typography>
-          </Stack>
-          <Stack>
             <FormControlLabel control={<Switch checked={p.compact_tables} onChange={(e) => change({ compact_tables: e.target.checked })} />} label="Compact tables" />
             <Typography variant="caption" color="text.secondary">Tighter rows so more fit on screen.</Typography>
           </Stack>
@@ -39,6 +36,7 @@ export default function Preferences() {
           {save.isSuccess && <Alert severity="success" sx={{ py: 0 }}>Saved.</Alert>}
         </Stack>
       </Paper>
+      <TimeOffCard title="My leave" help="Days you are away. You get no reminders on these days. Which reminders you receive is set by your admin (Settings → Reminders), per role." path="/leave" noun="leave" />
     </>
   )
 }

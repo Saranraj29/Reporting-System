@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date
+from datetime import time as dtime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
@@ -16,11 +17,13 @@ from ..models import (
     NotificationLog,
     Project,
     ProjectMember,
+    Role,
     TaskFieldDefinition,
     Team,
     User,
 )
 from ..security import decrypt, encrypt
+from ..services import reminders
 from ..services.timeutil import valid_timezone
 from .auth import PUBLIC_DOMAINS
 
@@ -260,6 +263,9 @@ def delete_contact(client_id: uuid.UUID, contact_id: uuid.UUID, ctx: Ctx = Depen
 
 
 # --------------------------------------------------------------------------- settings
+HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
 class SettingsPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     slack_webhook_url: HttpUrl | None = None
@@ -269,6 +275,14 @@ class SettingsPatch(BaseModel):
     timezone: str | None = None
     email_domain: str | None = None
     ai_enabled: bool | None = None
+    reminders_enabled: bool | None = None
+    reminder_morning_time: str | None = Field(default=None, pattern=HHMM)
+    reminder_eod_time: str | None = Field(default=None, pattern=HHMM)
+    reminder_due_time: str | None = Field(default=None, pattern=HHMM)
+
+
+def _hhmm(t: dtime) -> str:
+    return t.strftime("%H:%M")
 
 
 def _settings_out(ctx: Ctx) -> dict:
@@ -278,6 +292,8 @@ def _settings_out(ctx: Ctx) -> dict:
         "name": c.name, "timezone": c.timezone, "email_domain": c.email_domain,
         "report_email_enabled": c.report_email_day is not None, "report_email_day": c.report_email_day,
         "slack_configured": bool(c.slack_webhook_url), "ai_enabled": c.ai_enabled,
+        "reminders_enabled": c.reminders_enabled, "reminder_morning_time": _hhmm(c.reminder_morning_time),
+        "reminder_eod_time": _hhmm(c.reminder_eod_time), "reminder_due_time": _hhmm(c.reminder_due_time),
     }
     if admin and c.slack_webhook_url:
         url = decrypt(c.slack_webhook_url) or ""
@@ -337,6 +353,19 @@ def patch_settings(body: SettingsPatch, ctx: Ctx = Depends(require("settings.man
         c.report_email_day = body.report_email_day
     elif body.report_email_enabled and c.report_email_day is None:
         c.report_email_day = 0
+    morning = dtime.fromisoformat(body.reminder_morning_time) if body.reminder_morning_time else c.reminder_morning_time
+    eod = dtime.fromisoformat(body.reminder_eod_time) if body.reminder_eod_time else c.reminder_eod_time
+    if body.reminder_morning_time or body.reminder_eod_time:
+        if morning >= eod:
+            raise bad_request("invalid_reminder_times", "The morning reminder must be earlier than the end-of-day reminder")
+    if body.reminders_enabled is not None:
+        c.reminders_enabled = body.reminders_enabled
+    if body.reminder_morning_time:
+        c.reminder_morning_time = morning
+    if body.reminder_eod_time:
+        c.reminder_eod_time = eod
+    if body.reminder_due_time:
+        c.reminder_due_time = dtime.fromisoformat(body.reminder_due_time)
     if body.ai_enabled is not None:  # company kill switch: reports fall back to built-in wording within 60 s, no restart
         c.ai_enabled = body.ai_enabled
     if body.email_domain is not None:
@@ -349,6 +378,74 @@ def patch_settings(body: SettingsPatch, ctx: Ctx = Depends(require("settings.man
         c.email_domain = domain
     ctx.db.commit()
     return _settings_out(ctx)
+
+
+# --------------------------------------------------------------------------- reminders (wording, roles, times)
+def _reminder_out(c, kind: str) -> dict:
+    d = reminders.KINDS[kind]
+    cfg = (c.reminder_config or {}).get(kind) or {}
+    return {
+        "kind": kind, "label": d["label"], "description": d["description"], "placeholders": d["placeholders"],
+        "time": _hhmm(getattr(c, d["time"])) if d["time"] else None,
+        "subject": cfg.get("subject") or d["subject"], "body": cfg.get("body") or d["body"],
+        "default_subject": d["subject"], "default_body": d["body"],
+        "roles_off": sorted(reminders.roles_off(c, kind)),
+    }
+
+
+@router.get("/settings/reminders")
+def get_reminders(ctx: Ctx = Depends(require("settings.manage"))):
+    c = ctx.company
+    roles = ctx.db.execute(select(Role.id, Role.name).order_by(Role.name)).all()
+    return {
+        "reminders_enabled": c.reminders_enabled,
+        "roles": [{"id": str(r.id), "name": r.name} for r in roles],
+        "kinds": [_reminder_out(c, k) for k in reminders.KINDS],
+    }
+
+
+class ReminderIn(BaseModel):
+    subject: str | None = Field(default=None, max_length=reminders.MAX_SUBJECT)
+    body: str | None = Field(default=None, max_length=reminders.MAX_BODY)
+    roles_off: list[uuid.UUID] = Field(default_factory=list, max_length=200)  # roles that do NOT receive this reminder
+    time: str | None = Field(default=None, pattern=HHMM)
+
+
+@router.put("/settings/reminders/{kind}")
+def put_reminder(kind: str, body: ReminderIn, ctx: Ctx = Depends(require("settings.manage"))):
+    """Wording, role switches and (for the timed ones) the send time of one reminder. Empty or default wording is stored as 'not customised'."""
+    if kind not in reminders.KINDS:
+        raise not_found("Reminder")
+    d, c = reminders.KINDS[kind], ctx.company
+    subject, text_ = (body.subject or "").strip(), (body.body or "").strip()
+    bad = reminders.unknown_placeholders(kind, subject, text_)
+    if bad:
+        raise bad_request("unknown_placeholder", f"Unknown placeholder {', '.join('{' + b + '}' for b in bad)}; use {', '.join('{' + n + '}' for n in d['placeholders'])}")
+    known = set(ctx.db.execute(select(Role.id)).scalars())
+    if not set(body.roles_off) <= known:
+        raise bad_request("invalid_role", "Unknown role")
+    if body.time:
+        if not d["time"]:
+            raise bad_request("no_time", "This reminder has no send time of its own")
+        new = dtime.fromisoformat(body.time)
+        morning = new if d["time"] == "reminder_morning_time" else c.reminder_morning_time
+        eod = new if d["time"] == "reminder_eod_time" else c.reminder_eod_time
+        if morning >= eod:
+            raise bad_request("invalid_reminder_times", "The morning reminder must be earlier than the end-of-day reminder")
+        setattr(c, d["time"], new)
+    entry = {}
+    if subject and subject != d["subject"]:
+        entry["subject"] = subject
+    if text_ and text_ != d["body"]:
+        entry["body"] = text_
+    if body.roles_off:
+        entry["roles_off"] = sorted({str(r) for r in body.roles_off})
+    config = {k: v for k, v in (c.reminder_config or {}).items() if k != kind}
+    if entry:
+        config[kind] = entry
+    c.reminder_config = config  # a new dict, so the change is noticed
+    ctx.db.commit()
+    return _reminder_out(c, kind)
 
 
 @router.get("/notifications")

@@ -32,11 +32,17 @@ def me(ctx: Ctx = Depends(get_ctx)):
         "permissions": sorted(ctx.perms),
         "owns_projects": bool(owned_project_ids(ctx.db, ctx.me.id)),  # project owners can request AI reports for their projects
         "profile": _profile_out(ctx.me),
-        "prefs": {**DEFAULT_PREFS, **(ctx.me.prefs or {})},
+        "prefs": _prefs_out(ctx.me),
     }
 
 
-DEFAULT_PREFS = {"email_reminders": True, "start_page": "/", "compact_tables": False}
+DEFAULT_PREFS = {"start_page": "/", "compact_tables": False}
+
+
+def _prefs_out(u: User) -> dict:
+    return {**DEFAULT_PREFS, **{k: v for k, v in (u.prefs or {}).items() if k in DEFAULT_PREFS}}  # a retired key (email_reminders) is not returned
+
+
 START_PAGES = {"/", "/tasks", "/my-day", "/check-ins", "/reports"}
 
 
@@ -63,7 +69,6 @@ def update_profile(body: ProfilePatch, ctx: Ctx = Depends(get_ctx)):
 
 
 class PrefsIn(BaseModel):
-    email_reminders: bool | None = None
     start_page: str | None = None
     compact_tables: bool | None = None
 
@@ -73,7 +78,7 @@ def update_preferences(body: PrefsIn, ctx: Ctx = Depends(get_ctx)):
     data = body.model_dump(exclude_unset=True)
     if data.get("start_page") is not None and data["start_page"] not in START_PAGES:
         raise bad_request("invalid_start_page", "Choose one of the main pages")
-    ctx.me.prefs = {**DEFAULT_PREFS, **(ctx.me.prefs or {}), **{k: v for k, v in data.items() if v is not None}}
+    ctx.me.prefs = {**_prefs_out(ctx.me), **{k: v for k, v in data.items() if v is not None}}
     ctx.db.commit()
     return ctx.me.prefs
 

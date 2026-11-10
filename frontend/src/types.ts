@@ -7,7 +7,7 @@ export interface Me {
   permissions: string[]
   owns_projects?: boolean
   profile: { name: string; email: string; phone: string; job_title: string; location: string; bio: string }
-  prefs: { email_reminders: boolean; start_page: string; compact_tables: boolean }
+  prefs: { start_page: string; compact_tables: boolean }
 }
 export interface Page<T> {
   items: T[]
@@ -207,7 +207,36 @@ export interface Settings {
   slack_configured: boolean
   slack_webhook_hint?: string
   ai_enabled: boolean
+  reminders_enabled: boolean
+  reminder_morning_time: string
+  reminder_eod_time: string
+  reminder_due_time: string
   email?: { backend: 'console' | 'smtp'; from: string; host: string | null; port: number | null; security: string | null; problems: string[] }
+}
+/** One reminder in Settings → Reminders: its wording, the roles it is switched OFF for, and (timed ones) its send time. */
+export interface ReminderConfig {
+  kind: string
+  label: string
+  description: string
+  placeholders: string[]
+  time: string | null
+  subject: string
+  body: string
+  default_subject: string
+  default_body: string
+  roles_off: string[]
+}
+export interface RemindersSettings {
+  reminders_enabled: boolean
+  roles: { id: string; name: string }[]
+  kinds: ReminderConfig[]
+}
+/** A person's leave (/leave) or a company holiday (/holidays): a date range, both ends included. */
+export interface TimeOff {
+  id: string
+  start_date: string
+  end_date: string
+  note: string
 }
 export interface AiUsage {
   since: string

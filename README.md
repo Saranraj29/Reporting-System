@@ -122,7 +122,8 @@ partial-failure retry, and schedule timing per company timezone.
 * **Daily check-ins** – two timestamped check-ins per person per day: the **morning plan** and the **end-of-day update** (editable until
   midnight, company timezone). Tracked everywhere: *My day* form, team **Check-ins** page (who posted, who is missing, blockers, log),
   dashboard cards, the weekly/monthly report (per-person completion rates + the log; internal reports only, never sent to a client or an LLM),
-  and reminders (10:00 "share your plan", 17:30 "post your end-of-day update").
+  and reminders (by default 10:00 "share your plan", 17:30 "post your end-of-day update"; the times, the wording, a master switch, an on/off switch per role
+  and company holidays are in *Settings → Reminders*, personal leave in *Preferences* — nobody is reminded on a holiday or while on leave).
 * **Project visibility report (the Markdown layout)** – a base report (`visibility`) per project: header table (period, project, owners, status),
   sprint goal + KPI row (planned / completed / in progress / pending / progress %), status pie, workflow, current activities, completed
   deliverables, work-distribution pie, and for several projects the *Combined Sprint Health*, *Summary Dashboard* and *Team Work Distribution*.
@@ -174,7 +175,7 @@ partial-failure retry, and schedule timing per company timezone.
 * **Configurable by data** – roles, task fields (built-ins can be hidden, never dropped), report templates, schedules, Slack link.
 * **Reports are plug-ins** – one module per report in [`reports/`](backend/app/reports) (`weekly`, `monthly`, `performance`);
   exporters and the AI step only see the `figures` JSON.
-* **Worker** – reminders (17:30 status, 09:00 due/overdue), blocker alerts, report export, AI drafting, scheduled
+* **Worker** – reminders (default 10:00 plan, 17:30 status, 09:00 due/overdue; configurable per company, skipped on holidays and leave), blocker alerts, report export, AI drafting, scheduled
   templates (Fri 16:00 / 1st), scheduled report email (Mon 07:00 / 1st), share emails; all in company time.
 * **AI** – `draft_report_text(figures, template)` ([`services/ai.py`](backend/app/services/ai.py)); one prompt, one call,
   figures sanitised, JSON out; Anthropic / OpenAI / Gemini selected by environment variables (`resolve_config`).

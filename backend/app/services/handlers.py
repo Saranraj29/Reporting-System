@@ -29,9 +29,10 @@ from ..models import (
     User,
     UserRole,
 )
-from . import jobs, mail, runs, storage
+from . import jobs, mail, reminders, runs, storage
 from .access import load_permissions
 from .notify import deliver
+from .timeoff import is_company_holiday, users_on_leave
 from .timeutil import company_today, tzinfo
 
 log = logging.getLogger("handlers")
@@ -71,17 +72,22 @@ def _enqueue_notify(db: Session, company_id, user: User, kind: str, subject: str
 
 
 # ------------------------------------------------------------------------------ notifications
-REMINDER_KINDS = {"morning_plan", "daily_missing", "due", "team_overdue"}
-
-
 @handler("notify")
 def notify(db: Session, job: Job) -> None:
     user = db.get(User, uuid.UUID(job.payload["user_id"]))
     if user is None or not user.is_active:
         return
     p = job.payload
-    muted = p["kind"] in REMINDER_KINDS and (user.prefs or {}).get("email_reminders") is False  # the person turned reminder e-mails off
-    deliver(db, job, _company(db, job), user, None if muted else user.email, p["kind"], p["subject"], p["body"])
+    deliver(db, job, _company(db, job), user, user.email, p["kind"], p["subject"], p["body"])
+
+
+def _remind(db: Session, job: Job, user: User, kind: str, **values: str) -> None:
+    """Queue one reminder mail with the company's wording, unless every role of the person is switched off for this reminder."""
+    company = _company(db, job)
+    if not reminders.wants(db, company, user.id, kind):
+        return
+    subject, body = reminders.render(company, kind, **values)
+    _enqueue_notify(db, job.company_id, user, kind, subject, body)
 
 
 @handler("notify.blocker")
@@ -102,34 +108,48 @@ def notify_blocker(db: Session, job: Job) -> None:
     for u in db.execute(select(User).where(User.id.in_([x for x in leads if x]))).scalars():
         recipients[u.id] = u
     recipients.pop(uuid.UUID(actor), None) if actor else None
-    subject = f"Blocked: {task.title}"
-    body = f"The task “{task.title}” in {project.name if project else 'a project'} was marked as blocked.\n{_web('/tasks')}"
     for u in recipients.values():
-        _enqueue_notify(db, job.company_id, u, "blocker", subject, body)
+        _remind(db, job, u, "blocker", task=task.title, project=project.name if project else "a project", link=_web("/tasks"))
+
+
+def _reminders_paused(db: Session, job: Job, day: date) -> bool:
+    """No reminders when the company switched them off (also covers jobs queued just before) or on a company holiday."""
+    return not _company(db, job).reminders_enabled or is_company_holiday(db, day)
 
 
 @handler("cron.morning_plan")
 def cron_morning_plan(db: Session, job: Job) -> None:
     day = date.fromisoformat(job.payload["date"])
+    if _reminders_paused(db, job, day):
+        return
+    away = users_on_leave(db, day)
     posted = select(DailyStatus.user_id).where(DailyStatus.status_date == day, DailyStatus.morning_at.is_not(None))
     for u in db.execute(select(User).where(User.is_active.is_(True), User.email_verified_at.is_not(None), User.id.not_in(posted))).scalars():
-        _enqueue_notify(db, job.company_id, u, "morning_plan", "Share your plan for today",
-                        f"Good morning {u.name}! Post your morning check-in so the team knows what you are working on:\n{_web('/my-day')}")
+        if u.id in away:
+            continue
+        _remind(db, job, u, "morning_plan", name=u.name, date=f"{day:%d %b}", link=_web("/my-day"))
 
 
 @handler("cron.daily_missing")
 def cron_daily_missing(db: Session, job: Job) -> None:
     """End-of-day reminder: everyone who has not posted an end-of-day update (hours alone do not count)."""
     day = date.fromisoformat(job.payload["date"])
+    if _reminders_paused(db, job, day):
+        return
+    away = users_on_leave(db, day)
     posted = select(DailyStatus.user_id).where(DailyStatus.status_date == day, DailyStatus.eod_at.is_not(None))
     for u in db.execute(select(User).where(User.is_active.is_(True), User.email_verified_at.is_not(None), User.id.not_in(posted))).scalars():
-        _enqueue_notify(db, job.company_id, u, "daily_missing", "Please post your end-of-day update",
-                        f"Hi {u.name}, no end-of-day update for {day:%d %b} yet. What did you get done, what's next, any blockers?\n{_web('/my-day')}")
+        if u.id in away:
+            continue
+        _remind(db, job, u, "daily_missing", name=u.name, date=f"{day:%d %b}", link=_web("/my-day"))
 
 
 @handler("cron.due")
 def cron_due(db: Session, job: Job) -> None:
     today = date.fromisoformat(job.payload["date"])
+    if _reminders_paused(db, job, today):
+        return
+    away = users_on_leave(db, today)  # people on leave get no mail (a lead still hears about their team's overdue work)
     soon = today + timedelta(days=1)
     rows = db.execute(
         select(Task, TaskAssignee.user_id).join(TaskAssignee, TaskAssignee.task_id == Task.id)
@@ -151,12 +171,11 @@ def cron_due(db: Session, job: Job) -> None:
     users = {u.id: u for u in db.execute(select(User).where(User.id.in_({*per_user, *lead_overdue}))).scalars()}
     for uid, b in per_user.items():
         lines = [f"- due soon: {t}" for t in b["due"]] + [f"- overdue: {t}" for t in b["overdue"]]
-        if uid in users:
-            _enqueue_notify(db, job.company_id, users[uid], "due", "Tasks due soon or overdue", "\n".join(lines) + f"\n{_web('/tasks')}")
+        if uid in users and uid not in away:
+            _remind(db, job, users[uid], "due", name=users[uid].name, tasks="\n".join(lines), link=_web("/tasks"))
     for lead, titles in lead_overdue.items():
-        if lead in users:
-            _enqueue_notify(db, job.company_id, users[lead], "team_overdue", "Overdue tasks in your team",
-                            "\n".join(f"- {t}" for t in titles) + f"\n{_web('/tasks')}")
+        if lead in users and lead not in away:
+            _remind(db, job, users[lead], "team_overdue", name=users[lead].name, tasks="\n".join(f"- {t}" for t in titles), link=_web("/tasks"))
 
 
 # ------------------------------------------------------------------------------ reports

@@ -2,9 +2,10 @@ import { Alert, Button, Chip, FormControlLabel, MenuItem, Paper, Stack, Switch, 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import TimeOffCard from '../components/TimeOffCard'
 import { Empty, ErrorAlert, PageHeader } from '../components/ui'
 import { fmtDateTime } from '../format'
-import type { AiUsage, Page, Settings, TaskField } from '../types'
+import type { AiUsage, Page, ReminderConfig, RemindersSettings, Settings, TaskField } from '../types'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const ZONES = ['UTC', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Dubai', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Australia/Sydney']
@@ -15,11 +16,12 @@ export default function AdminSettings() {
     <>
       <PageHeader title="Settings" subtitle="Everything here is configuration stored as data — no deployment needed" />
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label="Company" /><Tab label="Task fields" /><Tab label="Notification log" />
+        <Tab label="Company" /><Tab label="Reminders" /><Tab label="Task fields" /><Tab label="Notification log" />
       </Tabs>
       {tab === 0 && <><Company /><EmailCard /><AiUsageCard /></>}
-      {tab === 1 && <Fields />}
-      {tab === 2 && <Log />}
+      {tab === 1 && <RemindersTab />}
+      {tab === 2 && <Fields />}
+      {tab === 3 && <Log />}
     </>
   )
 }
@@ -108,6 +110,69 @@ function Company() {
         <ErrorAlert error={save.error} />
         {save.isSuccess && <Alert severity="success">Settings saved.</Alert>}
         <Button variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={() => save.mutate(undefined)} disabled={save.isPending}>Save settings</Button>
+      </Stack>
+    </Paper>
+  )
+}
+
+/** Settings → Reminders: the master switch, company holidays, and one card per reminder (who gets it, when, and the wording). */
+function RemindersTab() {
+  const qc = useQueryClient()
+  const q = useQuery({ queryKey: ['reminders'], queryFn: () => api.get<RemindersSettings>('/settings/reminders') })
+  const master = useMutation({ mutationFn: (on: boolean) => api.patch('/settings', { reminders_enabled: on }), onSuccess: () => { qc.invalidateQueries({ queryKey: ['reminders'] }); qc.invalidateQueries({ queryKey: ['settings'] }) } })
+  const d = q.data
+  if (!d) return <ErrorAlert error={q.error} />
+  return (
+    <Stack spacing={2.5} sx={{ maxWidth: 720 }}>
+      <Paper sx={{ p: 3 }}>
+        <FormControlLabel control={<Switch checked={d.reminders_enabled} onChange={(e) => master.mutate(e.target.checked)} disabled={master.isPending} />} label="Send reminders" />
+        <Typography variant="caption" color="text.secondary" component="div">
+          Master switch for the morning, end-of-day, due and team-overdue reminders (blocker alerts and report emails are not affected). Times are in the company timezone.
+          Nothing is sent on a company holiday or to someone on leave. For each reminder below, choose which roles receive it and what it says.
+        </Typography>
+        <ErrorAlert error={master.error} />
+      </Paper>
+      <TimeOffCard title="Company holidays" help="No reminders are sent to anyone on these days." path="/holidays" noun="holidays" />
+      {d.kinds.map((k) => <ReminderCard key={k.kind + JSON.stringify([k.subject, k.body, k.time, k.roles_off])} k={k} roles={d.roles} paused={!d.reminders_enabled} />)}
+    </Stack>
+  )
+}
+
+function ReminderCard({ k, roles, paused }: { k: ReminderConfig; roles: { id: string; name: string }[]; paused: boolean }) {
+  const qc = useQueryClient()
+  const [f, setF] = useState({ subject: k.subject, body: k.body, time: k.time ?? '', off: k.roles_off })
+  const save = useMutation({
+    mutationFn: () => api.put(`/settings/reminders/${k.kind}`, { subject: f.subject, body: f.body, roles_off: f.off, time: k.time ? f.time : undefined }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['reminders'] }); qc.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+  const toggle = (id: string, on: boolean) => setF({ ...f, off: on ? f.off.filter((x) => x !== id) : [...f.off, id] })
+  const isDefault = f.subject === k.default_subject && f.body === k.default_body
+  return (
+    <Paper sx={{ p: 3, opacity: paused ? 0.6 : 1 }}>
+      <Stack spacing={1.5}>
+        <div>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{k.label}</Typography>
+          <Typography variant="body2" color="text.secondary">{k.description}</Typography>
+        </div>
+        <div>
+          <Typography variant="caption" color="text.secondary">Sent to these roles</Typography>
+          <Stack direction="row" flexWrap="wrap" useFlexGap columnGap={2}>
+            {roles.map((r) => <FormControlLabel key={r.id} label={r.name} control={<Switch size="small" checked={!f.off.includes(r.id)} onChange={(e) => toggle(r.id, e.target.checked)} />} />)}
+          </Stack>
+        </div>
+        {k.time !== null && <TextField size="small" type="time" label="Send time" InputLabelProps={{ shrink: true }} value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} sx={{ maxWidth: 160 }} />}
+        <TextField size="small" label="Subject" value={f.subject} onChange={(e) => setF({ ...f, subject: e.target.value })} inputProps={{ maxLength: 150 }} />
+        <TextField size="small" label="Message" multiline minRows={3} value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} inputProps={{ maxLength: 2000 }} />
+        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Typography variant="caption" color="text.secondary">Insert:</Typography>
+          {k.placeholders.map((p) => <Chip key={p} size="small" variant="outlined" label={`{${p}}`} onClick={() => setF({ ...f, body: `${f.body}{${p}}` })} />)}
+        </Stack>
+        <ErrorAlert error={save.error} />
+        {save.isSuccess && <Alert severity="success" sx={{ py: 0 }}>Saved.</Alert>}
+        <Stack direction="row" spacing={1.5}>
+          <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
+          <Button onClick={() => setF({ ...f, subject: k.default_subject, body: k.default_body })} disabled={isDefault}>Reset wording</Button>
+        </Stack>
       </Stack>
     </Paper>
   )

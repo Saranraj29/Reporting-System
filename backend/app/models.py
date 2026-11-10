@@ -1,11 +1,11 @@
 """ORM mapping of the schema created by alembic/versions/0001_initial.sql."""
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text, Time, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -43,6 +43,11 @@ class Company(Base, Stamps):
     ai_assistant_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     ai_daily_report_quota: Mapped[int] = mapped_column(Integer, default=50)
     ai_daily_turn_quota: Mapped[int] = mapped_column(Integer, default=500)
+    reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True)  # company switch for morning / end-of-day / due reminders
+    reminder_morning_time: Mapped[time] = mapped_column(Time, default=time(10, 0))  # company-local send times (weekdays; due: every day)
+    reminder_eod_time: Mapped[time] = mapped_column(Time, default=time(17, 30))
+    reminder_due_time: Mapped[time] = mapped_column(Time, default=time(9, 0))
+    reminder_config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)  # per reminder kind: subject, body, roles_off (see services/reminders.py)
 
 
 class User(Base, Stamps):
@@ -288,6 +293,18 @@ class NotificationLog(Base, Stamps):
     error: Mapped[str | None] = mapped_column(Text)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+
+class TimeOff(Base, Stamps):
+    """A company holiday (user_id NULL) or one person's leave. Reminders are skipped on these days."""
+    __tablename__ = "time_off"
+    id: Mapped[uuid.UUID] = _pk()
+    company_id: Mapped[uuid.UUID] = _cid()
+    user_id: Mapped[uuid.UUID | None] = _fk("users", True)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[uuid.UUID | None] = _fk("users", True, "SET NULL")
 
 
 class Job(Base):

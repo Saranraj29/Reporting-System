@@ -1,22 +1,20 @@
 """Profile + preferences, teams as departments with team tasks, search filters, default role without the AI assistant."""
 
-import datetime as dt
-
-from .conftest import add_user, drain, login
+from .conftest import add_user, login
 
 
 # ------------------------------------------------------------------ profile and preferences
 def test_profile_and_preferences(org):
     me = org.m1.get("/me").json()
-    assert me["profile"]["phone"] == "" and me["prefs"] == {"email_reminders": True, "start_page": "/", "compact_tables": False}
+    assert me["profile"]["phone"] == "" and me["prefs"] == {"start_page": "/", "compact_tables": False}
     r = org.m1.patch("/me/profile", {"phone": " +91 98765 43210 ", "job_title": "QA engineer", "location": "Chennai", "bio": "Loves tests.", "name": "Mia M."})
     assert r.status_code == 200 and r.json()["phone"] == "+91 98765 43210" and r.json()["name"] == "Mia M."
     me = org.m1.get("/me").json()
     assert me["name"] == "Mia M." and me["profile"]["job_title"] == "QA engineer" and me["profile"]["email"] == "mia.member@acme.com"
     assert org.m1.patch("/me/profile", {"email": "x@y.com"}).json()["email"] == "mia.member@acme.com"  # the e-mail is not editable here
     assert org.m1.patch("/me/profile", {"name": ""}).status_code == 422
-    p = org.m1.put("/me/preferences", {"email_reminders": False, "start_page": "/tasks"}).json()
-    assert p == {"email_reminders": False, "start_page": "/tasks", "compact_tables": False}
+    p = org.m1.put("/me/preferences", {"email_reminders": False, "start_page": "/tasks"}).json()  # reminders are a company/role setting now: the old key is ignored
+    assert p == {"start_page": "/tasks", "compact_tables": False}
     assert org.m1.put("/me/preferences", {"start_page": "/admin/users"}).json()["code"] == "invalid_start_page"
     assert org.m1.get("/me").json()["prefs"]["start_page"] == "/tasks" and org.m2.get("/me").json()["prefs"]["start_page"] == "/"
 
@@ -27,22 +25,6 @@ def test_change_password(org, client):
     assert org.m1.post("/me/password", {"current_password": "Passw0rd!pass", "new_password": "N3w-passw0rd!"}).status_code == 204
     assert client.post("/api/v1/auth/login", json={"email": "mia.member@acme.com", "password": "Passw0rd!pass"}).status_code == 401
     assert login(client, "mia.member@acme.com", "N3w-passw0rd!")
-
-
-def test_reminder_emails_respect_the_preference(work, owner_conn):
-    from app.services import mail
-    from app.worker import schedule_tick
-
-    work.m1.put("/me/preferences", {"email_reminders": False})
-    owner_conn.execute("update companies set timezone = 'UTC'")
-    now = dt.datetime.now(dt.UTC).replace(hour=11, minute=0)
-    while now.weekday() >= 5:
-        now -= dt.timedelta(days=1)
-    mail.outbox.clear()
-    schedule_tick(now)
-    drain()
-    recipients = {m["to"] for m in mail.outbox}
-    assert "mia.member@acme.com" not in recipients and "max.member@acme.com" in recipients  # Mia muted hers, Max did not
 
 
 # ------------------------------------------------------------------ default role
