@@ -152,6 +152,7 @@ def test_queue_claims_each_job_once(org, owner_conn):
     from app.db import new_session
     from app.services import jobs
 
+    drain()  # sign-up queues e-mails (verification): start from an empty queue
     cid = owner_conn.execute("SELECT id FROM companies").fetchone()[0]
     s = new_session()
     jobs.enqueue(s, "noop", cid, {}, dedupe_key="k1")
