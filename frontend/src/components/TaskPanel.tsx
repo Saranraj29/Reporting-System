@@ -23,6 +23,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
 import { api, errorMessage } from '../api'
 import DeleteDialog from './DeleteDialog'
+import DurationField, { durationHours } from './DurationField'
 import { ago, elapsed, fmtDate, fmtDateTime, hours, initials, today } from '../format'
 import { STATUS_COLORS, STATUS_LABELS } from '../theme'
 import { useNow, useRunningTimer, useTimerActions } from '../timer'
@@ -31,6 +32,7 @@ import { Markdown } from './Markdown'
 import { PriorityChip, StatusChip } from './ui'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent']
+const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 function SideLabel({ children }: { children: React.ReactNode }) {
   return <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', mb: 0.75 }}>{children}</Typography>
@@ -253,10 +255,10 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
     qc.invalidateQueries({ queryKey: ['comments', id] })
     qc.invalidateQueries({ queryKey: ['dashboard'] })
   }
-  const patch = useMutation({ mutationFn: (body: Record<string, unknown>) => api.patch(`/tasks/${id}`, body), onSuccess: refresh })
-  const reassign = useMutation({ mutationFn: (userIds: string[]) => api.put(`/tasks/${id}/assignees`, { user_ids: userIds }), onSuccess: refresh })
+  const patch = useMutation({ mutationFn: (body: Record<string, unknown>) => api.patch(`/tasks/${id}`, { ...body, expected_updated_at: t?.updated_at }), onSuccess: refresh, onError: refresh })
+  const reassign = useMutation({ mutationFn: (userIds: string[]) => api.put(`/tasks/${id}/assignees`, { user_ids: userIds, expected_updated_at: t?.updated_at }), onSuccess: refresh, onError: refresh })
   const logTime = useMutation({
-    mutationFn: () => api.post('/time-entries', { task_id: id, hours: Number(log.hours), entry_date: today(), note: log.note }),
+    mutationFn: () => api.post('/time-entries', { task_id: id, hours: durationHours(log.hours), entry_date: today(), note: log.note }),
     onSuccess: () => { setLog({ hours: '', note: '' }); refresh() },
   })
 
@@ -328,7 +330,7 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                 <Box>
                   <SideLabel>Priority</SideLabel>
                   {t.can_edit ? (
-                    <Select fullWidth size="small" value={t.priority} onChange={(e) => patch.mutate({ priority: e.target.value })} sx={select} inputProps={{ 'aria-label': 'Priority' }}>
+                    <Select fullWidth size="small" value={t.priority} onChange={(e) => patch.mutate({ priority: e.target.value })} sx={{ ...select, '& .MuiSelect-select': { py: 0.75, textTransform: 'capitalize' } }} inputProps={{ 'aria-label': 'Priority' }}>
                       {PRIORITIES.map((p) => <MenuItem key={p} value={p} sx={{ textTransform: 'capitalize' }}>{p}</MenuItem>)}
                     </Select>
                   ) : <PriorityChip priority={t.priority} />}
@@ -344,6 +346,13 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                 </Box>
 
                 <Box>
+                  <SideLabel>Start date</SideLabel>
+                  {t.can_edit ? (
+                    <TextField fullWidth size="small" type="date" value={t.start_date ?? ''} onChange={(e) => patch.mutate({ start_date: e.target.value || null })} inputProps={{ 'aria-label': 'Start date', max: t.due_date ?? undefined }} />
+                  ) : <Typography variant="body2">{fmtDate(t.start_date)}</Typography>}
+                </Box>
+
+                <Box>
                   <SideLabel>Due date</SideLabel>
                   {t.can_edit ? (
                     <TextField fullWidth size="small" type="date" value={t.due_date ?? ''} onChange={(e) => patch.mutate({ due_date: e.target.value || null })} inputProps={{ 'aria-label': 'Due date' }} />
@@ -356,7 +365,8 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                   {t.eta_hours ? <LinearProgress variant="determinate" value={pct} color={over ? 'error' : 'primary'} sx={{ height: 7, borderRadius: 4, mb: 1.5 }} /> : null}
                   {over && <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1 }}>{hours(t.actual_hours - (t.eta_hours ?? 0))} over the estimate</Typography>}
 
-                  {canLog && t.assignees.length > 0 && (
+                  {t.status === 'done' && <Alert severity="info" sx={{ mb: 1 }}>This task is done. Reopen it to log time or start a timer.</Alert>}
+                  {canLog && t.assignees.length > 0 && t.status !== 'done' && (
                     <>
                       {/* the side panel is narrow: let the text and the button wrap onto their own lines instead of squeezing each other */}
                       <Paper sx={{ p: 1.25, mt: 1, mb: 1.5, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1, '& .MuiButton-root': { whiteSpace: 'nowrap', flexShrink: 0 }, bgcolor: runningHere ? '#fff5f5' : '#fff', borderColor: runningHere ? '#ffc9c9' : undefined }}>
@@ -379,10 +389,10 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                       </Paper>
                       {(start.error || stop.error) && <Alert severity="error" sx={{ mb: 1 }}>{errorMessage(start.error ?? stop.error)}</Alert>}
                       <Typography variant="caption" color="text.secondary">Log time manually</Typography>
-                      <Box sx={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', gap: 0.75, mt: 0.75 }}>
-                        <TextField size="small" type="number" label="Hours" value={log.hours} onChange={(e) => setLog({ ...log, hours: e.target.value })} inputProps={{ min: 0.25, max: 24, step: 0.25 }} />
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '120px minmax(0, 1fr)', gap: 0.75, mt: 0.75 }}>
+                        <DurationField value={log.hours} onChange={(v) => setLog({ ...log, hours: v })} />
                         <TextField size="small" label="Note" value={log.note} onChange={(e) => setLog({ ...log, note: e.target.value })} />
-                        <Button variant="contained" size="small" sx={{ gridColumn: '1 / -1' }} disabled={!log.hours || logTime.isPending} onClick={() => logTime.mutate()}>Add time</Button>
+                        <Button variant="contained" size="small" sx={{ gridColumn: '1 / -1' }} disabled={durationHours(log.hours) === null || logTime.isPending} onClick={() => logTime.mutate()}>Add time</Button>
                       </Box>
                       {logTime.error && <Alert severity="error" sx={{ mt: 1 }}>{errorMessage(logTime.error)}</Alert>}
                     </>
@@ -393,7 +403,7 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                   <SideLabel>Time entries</SideLabel>
                   {entries.data?.items.length ? entries.data.items.map((e) => (
                     <Stack key={e.id} direction="row" justifyContent="space-between" sx={{ py: 0.5 }}>
-                      <Typography variant="caption" sx={{ pr: 1 }}>{e.user_name} · {fmtDate(e.entry_date)}{e.note ? ` · ${e.note}` : ''}</Typography>
+                      <Typography variant="caption" sx={{ pr: 1 }}>{e.user_name} · {fmtDate(e.entry_date)}{e.started_at && e.stopped_at ? ` · ${clock(e.started_at)}–${clock(e.stopped_at)}` : ''}{e.note ? ` · ${e.note}` : ''}</Typography>
                       <Typography variant="caption" sx={{ fontWeight: 700 }}>{e.running ? 'running' : hours(e.hours)}</Typography>
                     </Stack>
                   )) : <Typography variant="caption" color="text.secondary">No time logged yet.</Typography>}
@@ -402,14 +412,14 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                 <Box>
                   <SideLabel>Details</SideLabel>
                   <Stack spacing={0.75}>
-                    {[['Project', t.project_name], ['Team', t.team_name ?? '—'], ['Start date', fmtDate(t.start_date)],
+                    {[['Project', t.project_name], ['Team', t.team_name ?? '—'],
                       ...Object.entries(t.custom_fields).map(([k, v]) => [k.replace(/_/g, ' '), String(v)])].map(([k, v]) => (
                       <Stack key={k} direction="row" justifyContent="space-between"><Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>{k}</Typography><Typography variant="caption" sx={{ fontWeight: 600 }}>{v}</Typography></Stack>
                     ))}
                   </Stack>
                 </Box>
 
-                {t.can_edit && (
+                {t.can_delete && (
                   <Box>
                     <Button color="error" startIcon={<DeleteIcon fontSize="small" />} onClick={() => setRemoving(true)}>Delete task</Button>
                   </Box>

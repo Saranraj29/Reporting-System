@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { api } from '../api'
 import DeleteDialog from '../components/DeleteDialog'
-import { Empty, ErrorAlert, PageHeader, SearchBox } from '../components/ui'
+import { Empty, ErrorAlert, PageHeader, SearchBox, clickable } from '../components/ui'
 import { useSearch, useUsers } from '../hooks'
 import type { Team, UserLite } from '../types'
 
@@ -44,7 +44,7 @@ export default function AdminTeams() {
       </Stack>
       <Stack spacing={1.5}>
         {teams.data?.items.map((t) => (
-          <Paper key={t.id} sx={{ p: 2.5, cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }} variant="outlined" onClick={() => open(t)}>
+          <Paper key={t.id} sx={{ p: 2.5, cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }} variant="outlined" {...clickable(() => open(t))} aria-label={`Edit team ${t.name}`}>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between">
               <div>
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{t.name}</Typography>

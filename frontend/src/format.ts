@@ -4,7 +4,31 @@ export const fmtShort = (d?: string | null) =>
   d ? new Date(`${d.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—'
 export const fmtDateTime = (d?: string | null) =>
   d ? new Date(d).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
-export const hours = (n: number) => `${Math.round(n * 10) / 10}h`
+/** A length of time from hours, the way people say it: "45m", "2h", "1h 30m". Under a minute: "<1m". */
+export const hours = (n: number) => {
+  if (!(n > 0)) return '0m'
+  const minutes = Math.round(n * 60)
+  if (minutes < 1) return '<1m'
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`
+}
+
+/** What a person types into a Time box -> hours, or null when it is not a duration. Understands 1.5, 1:30, 90m, 45 min, 1h, 1h 30m, 2 hrs. */
+export function parseDuration(text: string): number | null {
+  const t = text.trim().toLowerCase()
+  if (!t) return null
+  let m = /^(\d+(?:\.\d+)?)$/.exec(t)  // a bare number is hours
+  if (m) return Number(m[1])
+  m = /^(\d+):([0-5]?\d)$/.exec(t)  // 1:30
+  if (m) return Number(m[1]) + Number(m[2]) / 60
+  m = /^(?:(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours))?\s*(?:(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes))?$/.exec(t)  // 1h 30m, 90m, 2 hrs
+  if (m && (m[1] || m[2])) return Number(m[1] ?? 0) + Number(m[2] ?? 0) / 60
+  return null
+}
+
+/** The same duration written the way it can be typed back into a Time box. */
+export const durationText = (n: number) => hours(n)
 export const isoDay = (d: Date) => {
   const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
   return z.toISOString().slice(0, 10)

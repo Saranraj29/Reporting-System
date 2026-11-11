@@ -1,6 +1,7 @@
 import { CircularProgress, Box } from '@mui/material'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { canOpen } from './access'
 import { useAuth } from './auth'
 import AdminClients from './pages/AdminClients'
 import AdminProjects from './pages/AdminProjects'
@@ -20,10 +21,10 @@ import SharedReport from './pages/Shared'
 import Tasks from './pages/Tasks'
 
 function Home() {
-  const { hasAny, me } = useAuth()
+  const { hasAny, can, me } = useAuth()
   const start = me?.prefs.start_page
   // the page the person chose to land on (only the first time in a browser session, so the Dashboard link still works)
-  if (start && start !== '/' && !sessionStorage.getItem('start-page-used')) {
+  if (start && start !== '/' && canOpen(start, { can, hasAny, me }) && !sessionStorage.getItem('start-page-used')) {
     sessionStorage.setItem('start-page-used', '1')
     return <Navigate to={start} replace />
   }
@@ -55,6 +56,7 @@ export default function App() {
   }
   return (
     <Routes>
+      <Route path="/forgot-password" element={<Navigate to="/" replace />} />
       {publicRoutes}
       <Route element={<Layout />}>
         <Route index element={<Home />} />

@@ -9,7 +9,7 @@ import { useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { useAuth } from '../auth'
 import { TaskPanel } from '../components/TaskPanel'
-import { AssigneeAvatars, Empty, ErrorAlert, PageHeader, PriorityChip, SearchBox, StatusChip } from '../components/ui'
+import { AssigneeAvatars, Empty, ErrorAlert, PageHeader, PriorityChip, SearchBox, StatusChip, clickable } from '../components/ui'
 import { change, personOptions, projectOptions, teamOptions, type Sel } from '../filters'
 import { fmtDate, hours } from '../format'
 import { useSearch } from '../hooks'
@@ -17,6 +17,7 @@ import { STATUS_LABELS } from '../theme'
 import type { Page, Project, Task, TaskField, Team, UserLite } from '../types'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent']
+const CAPS = { '& .MuiSelect-select': { textTransform: 'capitalize' } }  // "High" everywhere, not "high" in the form
 
 function useLookups() {
   const projects = useQuery({ queryKey: ['projects', 'all'], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200 }) })
@@ -92,9 +93,9 @@ export default function Tasks() {
             </TextField>
           </Grid>
           <Grid item xs={6} md={1.5}>
-            <TextField select size="small" fullWidth label="Priority" value={f.priority} onChange={(e) => upd({ priority: e.target.value })}>
+            <TextField select size="small" fullWidth label="Priority" value={f.priority} onChange={(e) => upd({ priority: e.target.value })} sx={CAPS}>
               <MenuItem value="">All</MenuItem>
-              {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+              {PRIORITIES.map((p) => <MenuItem key={p} value={p} sx={{ textTransform: 'capitalize' }}>{p}</MenuItem>)}
             </TextField>
           </Grid>
           {showPeople && (
@@ -115,28 +116,28 @@ export default function Tasks() {
       <Paper sx={{ overflow: 'hidden' }}>
         {q.isFetching && <LinearProgress />}
         <Box sx={{ overflowX: 'auto' }}>
-          <Table size="medium" sx={{ minWidth: 820 }}>
+          <Table size="medium" sx={{ minWidth: { xs: 0, md: 820 } }}>
             <TableHead>
               <TableRow>
                 <TableCell>Task</TableCell>
                 <TableCell>Status</TableCell>
-                <TableCell>Priority</TableCell>
+                <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Priority</TableCell>
                 <TableCell>Due</TableCell>
-                <TableCell sx={{ width: 170 }}>Hours (actual / ETA)</TableCell>
+                <TableCell sx={{ width: 170, display: { xs: 'none', md: 'table-cell' } }}>Hours (actual / ETA)</TableCell>
                 <TableCell align="right">Assignees</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {q.data?.items.map((t) => (
-                <TableRow key={t.id} hover sx={{ cursor: 'pointer' }} onClick={() => setOpenId(t.id)}>
+                <TableRow key={t.id} hover sx={{ cursor: 'pointer' }} {...clickable(() => setOpenId(t.id))} aria-label={`Open task ${t.title}`}>
                   <TableCell>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>{t.title}</Typography>
                     <Typography variant="caption" color="text.secondary">{t.project_name} · {t.activity_type}{t.team_name ? ` · ${t.team_name}` : ''}</Typography>
                   </TableCell>
                   <TableCell><StatusChip status={t.status} /></TableCell>
-                  <TableCell><PriorityChip priority={t.priority} /></TableCell>
+                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}><PriorityChip priority={t.priority} /></TableCell>
                   <TableCell sx={{ color: t.overdue ? 'error.main' : 'inherit', fontWeight: t.overdue ? 700 : 400 }}>{fmtDate(t.due_date)}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                     <Typography variant="caption">{hours(t.actual_hours)} / {t.eta_hours != null ? hours(t.eta_hours) : '—'}</Typography>
                     {t.eta_hours ? <LinearProgress variant="determinate" value={Math.min(100, (t.actual_hours / t.eta_hours) * 100)} color={t.actual_hours > t.eta_hours ? 'error' : 'primary'} sx={{ height: 5, borderRadius: 3, mt: 0.5 }} /> : null}
                   </TableCell>
@@ -195,18 +196,23 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
         eta_hours: form.eta_hours === '' ? null : Number(form.eta_hours), start_date: form.start_date || null, due_date: form.due_date || null, custom_fields: custom,
       }
       if (task) {
-        const saved = await api.patch<Task>(`/tasks/${task.id}`, body)
-        await api.put(`/tasks/${task.id}/assignees`, { user_ids: assignees.map((a) => a.id) })
+        const saved = await api.patch<Task>(`/tasks/${task.id}`, { ...body, expected_updated_at: task.updated_at })
+        await api.put(`/tasks/${task.id}/assignees`, { user_ids: assignees.map((a) => a.id), expected_updated_at: saved.updated_at })
         return saved
       }
       return api.post<Task>('/tasks', { ...body, assignee_ids: assignees.map((a) => a.id) })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['task'] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
       onClose()
     },
+    onError: () => { qc.invalidateQueries({ queryKey: ['task'] }); qc.invalidateQueries({ queryKey: ['tasks'] }) },  // somebody else saved first: the latest version is loaded behind this form
   })
+  // told while typing, not after pressing Create
+  const etaError = form.eta_hours !== '' && Number(form.eta_hours) < 0 ? 'The estimate cannot be negative.' : ''
+  const dateError = form.start_date && form.due_date && form.due_date < form.start_date ? 'The due date cannot be before the start date.' : ''
   const activityOptions = defs.activity_type?.options?.length ? defs.activity_type.options : ['Development']
   const customFields = fields.filter((f) => !f.is_builtin && f.is_active)
 
@@ -238,8 +244,8 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
           )}
           {visible('priority') && (
             <Grid item xs={6} md={3}>
-              <TextField select label="Priority" fullWidth value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
-                {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+              <TextField select label="Priority" fullWidth value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} sx={CAPS}>
+                {PRIORITIES.map((p) => <MenuItem key={p} value={p} sx={{ textTransform: 'capitalize' }}>{p}</MenuItem>)}
               </TextField>
             </Grid>
           )}
@@ -250,17 +256,17 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
           </Grid>
           {visible('eta_hours') && (
             <Grid item xs={6} md={3}>
-              <TextField label={defs.eta_hours?.label ?? 'ETA (hours)'} type="number" fullWidth value={form.eta_hours} onChange={(e) => setForm({ ...form, eta_hours: e.target.value })} inputProps={{ min: 0, step: 0.5 }} />
+              <TextField label={defs.eta_hours?.label ?? 'ETA (hours)'} type="number" fullWidth value={form.eta_hours} onChange={(e) => setForm({ ...form, eta_hours: e.target.value })} inputProps={{ min: 0, step: 0.5 }} error={!!etaError} helperText={etaError || ' '} />
             </Grid>
           )}
           {visible('start_date') && (
             <Grid item xs={6} md={3}>
-              <TextField label="Start date" type="date" fullWidth InputLabelProps={{ shrink: true }} value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+              <TextField label="Start date" type="date" fullWidth InputLabelProps={{ shrink: true }} value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} error={!!dateError} />
             </Grid>
           )}
           {visible('due_date') && (
             <Grid item xs={6} md={3}>
-              <TextField label="Due date" type="date" fullWidth InputLabelProps={{ shrink: true }} value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+              <TextField label="Due date" type="date" fullWidth InputLabelProps={{ shrink: true }} value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} error={!!dateError} helperText={dateError || ' '} inputProps={{ min: form.start_date || undefined }} />
             </Grid>
           )}
           <Grid item xs={12} md={6}>
@@ -288,7 +294,7 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending || !form.title || !form.project_id || assignees.length === 0}>
+        <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending || !form.title || !form.project_id || assignees.length === 0 || !!etaError || !!dateError}>
           {task ? 'Save changes' : 'Create task'}
         </Button>
       </DialogActions>

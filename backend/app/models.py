@@ -183,7 +183,7 @@ class TimeEntry(Base, Stamps):
     company_id: Mapped[uuid.UUID] = _cid()
     task_id: Mapped[uuid.UUID] = _fk("tasks")
     user_id: Mapped[uuid.UUID] = _fk("users")
-    hours: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=0)
+    hours: Mapped[Decimal] = mapped_column(Numeric(8, 4), default=0)  # 4 decimals: a minute is 0.0167 h
     entry_date: Mapped[date] = mapped_column(Date)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

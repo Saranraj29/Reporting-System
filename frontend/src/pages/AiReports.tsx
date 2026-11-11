@@ -16,7 +16,7 @@ import { Alert, Autocomplete, Box, Button, Chip, CircularProgress, Collapse, Ico
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api } from '../api'
+import { api, errorMessage } from '../api'
 import DeleteDialog from '../components/DeleteDialog'
 import { Empty, ErrorAlert, PageHeader, ReportFrame } from '../components/ui'
 import { fmtDate } from '../format'
@@ -185,7 +185,7 @@ export default function AiReports() {
 const VISUAL_ICON: Record<AiOutlineSection['visual'], JSX.Element> = {
   table: <TableChartIcon fontSize="small" />, chart: <BarChartIcon fontSize="small" />, flow: <AccountTreeIcon fontSize="small" />, text: <NotesIcon fontSize="small" />,
 }
-const VISUAL_LABEL: Record<AiOutlineSection['visual'], string> = { table: 'Table', chart: 'Chart', flow: 'Flow diagram', text: 'Written by AI' }
+const VISUAL_LABEL: Record<AiOutlineSection['visual'], string> = { table: 'Table', chart: 'Chart', flow: 'Flow diagram', text: 'Written text' }
 
 function StructurePreview({ r, onApprove, approving }: { r: AiReportDetail; onApprove: () => void; approving: boolean }) {
   const qc = useQueryClient()
@@ -211,7 +211,7 @@ function StructurePreview({ r, onApprove, approving }: { r: AiReportDetail; onAp
           <Stack component="li" key={s.id} direction="row" spacing={2} alignItems="center" sx={{ py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'primary.main', color: 'primary.contrastText', display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{i + 1}</Box>
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography sx={{ fontWeight: 600 }}>{s.title.replace('{project}', '‹project›')}</Typography>
+              <Typography sx={{ fontWeight: 600 }}>{s.title.replace('{project}', n === 1 ? r.project_names[0] : 'each project')}</Typography>
               <Typography variant="caption" color="text.secondary">{s.what}</Typography>
             </Box>
             <Stack direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
@@ -319,7 +319,11 @@ function Result({ r }: { r: AiReportDetail }) {
           </Collapse>
         </Box>
       </Paper>
-      {html.isLoading ? <CircularProgress /> : html.data && <ReportFrame html={html.data.html} height={820} />}
+      {html.isLoading ? <CircularProgress aria-label="Loading the preview" /> : html.data ? <ReportFrame html={html.data.html} height={820} /> : (
+        <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => html.refetch()}>Try again</Button>}>
+          The preview could not be shown{html.error ? `: ${errorMessage(html.error)}` : ''}. You can still download the report above.
+        </Alert>
+      )}
     </Stack>
   )
 }
@@ -342,7 +346,7 @@ export function AiReportPage() {
       {q.isLoading && <CircularProgress />}
       {r?.status === 'planning' && <Working text="Preparing the structure…" sub="This takes a few seconds." />}
       {r?.status === 'outline_ready' && r.outline && <StructurePreview r={r} onApprove={() => approve.mutate()} approving={approve.isPending} />}
-      {r?.status === 'generating' && <Working text="Writing your report…" sub="Numbers come straight from your project data; the AI writes the text." />}
+      {r?.status === 'generating' && <Working text="Writing your report…" sub="Numbers come straight from your project data; the wording is added next." />}
       {r?.status === 'ready' && <Result r={r} />}
       {r?.status === 'failed' && (
         <Paper sx={{ p: 3 }}>

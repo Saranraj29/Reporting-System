@@ -179,7 +179,7 @@ function Fields() {
                 <TableCell><b>{x.label}</b> <Typography component="span" variant="caption" color="text.secondary">{x.key}</Typography></TableCell>
                 <TableCell>{x.type}{x.type === 'select' ? ` (${x.options.length})` : ''}</TableCell>
                 <TableCell>{x.is_builtin ? <Chip size="small" label="Built-in" /> : <Chip size="small" color="primary" variant="outlined" label="Custom" />}</TableCell>
-                <TableCell>{x.is_builtin ? '—' : <Switch size="small" checked={x.required} onChange={(e) => patch.mutate({ id: x.id, body: { required: e.target.checked } })} />}</TableCell>
+                <TableCell>{x.is_builtin ? <Typography variant="body2" color="text.secondary">{x.required ? 'Always' : 'Optional'}</Typography> : <Switch size="small" checked={x.required} onChange={(e) => patch.mutate({ id: x.id, body: { required: e.target.checked } })} />}</TableCell>
                 <TableCell align="right"><Switch checked={x.is_active} onChange={(e) => patch.mutate({ id: x.id, body: { is_active: e.target.checked } })} inputProps={{ 'aria-label': `Show ${x.label}` }} /></TableCell>
               </TableRow>
             ))}
@@ -207,6 +207,8 @@ function Log() {
   const q = useQuery({ queryKey: ['notifications'], queryFn: () => api.get<Page<{ id: string; kind: string; channel: string; status: string; error: string | null; sent_at: string }>>('/notifications', { limit: 50 }) })
   return (
     <Paper sx={{ overflow: 'hidden' }}>
+      <ErrorAlert error={q.error} />
+      {q.isLoading && <Empty>Loading…</Empty>}
       <Table size="small">
         <TableHead><TableRow><TableCell>When</TableCell><TableCell>Kind</TableCell><TableCell>Channel</TableCell><TableCell>Status</TableCell><TableCell>Error</TableCell></TableRow></TableHead>
         <TableBody>

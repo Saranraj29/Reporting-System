@@ -139,7 +139,7 @@ def dashboard(
         "tasks_by_status": by_status,
         "total_tasks": sum(by_status.values()),
         "overdue_count": overdue_total, "blocked_count": blocked_total,
-        "total_hours": round(sum(h["hours"] for h in hours_by_project), 2),
+        "total_hours": round(sum(h["hours"] for h in hours_by_project), 4),
         "hours_by_project": hours_by_project, "hours_by_activity": hours_by_activity, "hours_by_day": hours_by_day,
         "overdue_tasks": overdue, "blockers": blockers,
         "daily_status": {

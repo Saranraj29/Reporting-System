@@ -117,8 +117,10 @@ def _check_quota(ctx: Ctx) -> None:
 
 @router.post("/ai-reports", status_code=202)
 def create(body: CreateIn, ctx: Ctx = Depends(ai_ctx)):
-    if body.period_end < body.period_start or (body.period_end - body.period_start).days > 400:
-        raise bad_request("invalid_range", "Choose a period of at most 400 days")
+    if body.period_end < body.period_start:
+        raise bad_request("invalid_range", "The period must end on or after the day it starts.")
+    if (body.period_end - body.period_start).days > 400:
+        raise bad_request("invalid_range", "Choose a period of at most 400 days.")
     if body.format_mode == "sample" and len(body.format_sample.strip()) < 20:
         raise bad_request("sample_required", "Paste the sample or outline of the report you want (at least a few lines)")
     allowed, unrestricted = _allowed_projects(ctx)

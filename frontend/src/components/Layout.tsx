@@ -19,8 +19,9 @@ import TuneIcon from '@mui/icons-material/TuneOutlined'
 import Diversity3Icon from '@mui/icons-material/Diversity3Outlined'
 import { AppBar, Avatar, Box, ButtonBase, Divider, Drawer, Fab, GlobalStyles, IconButton, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { canOpen } from '../access'
+import { NoAccess } from './ui'
 import { useAuth } from '../auth'
 import { initials } from '../format'
 import { HeaderTimer } from '../timer'
@@ -79,7 +80,7 @@ export function Layout() {
   const storeKey = `assistant-open:${me?.id}`
   const [assistOpen, setAssistOpen] = useState(() => read(storeKey, false))
   const setAssist = (v: boolean) => { setAssistOpen(v); write(storeKey, v) }
-  const hasAssistant = can('assistant.use') && !pathname.startsWith('/ai-reports') // AI reports keeps its own three-step flow
+  const hasAssistant = can('assistant.use')
   const docked = hasAssistant && assistOpen && !mobile  // below md the panel opens full screen instead of docking
   const left = !mobile && navOpen ? WIDTH : 0
   const right = docked ? ASSISTANT_WIDTH : 0
@@ -215,7 +216,7 @@ export function Layout() {
         {drawer}
       </Drawer>
       <Box component="main" sx={{ flex: 1, minWidth: 0, p: { xs: 2, md: 3.5 }, pt: { xs: 10, md: 11 }, pb: { xs: 11, md: 11 }, transition: slide, mr: `${right}px` }}>
-        {canOpen(pathname, who) ? <Outlet /> : <Navigate to="/" replace />}  {/* a page the person has no access to cannot be opened by typing its address */}
+        {canOpen(pathname, who) ? <Outlet /> : <NoAccess onHome={() => nav('/')} />}  {/* a page the person has no access to is not shown, and they are told why */}
       </Box>
       <Tooltip title="Add today's status" placement="left">
         <Fab color="primary" aria-label="Add daily status" onClick={() => setStatusOpen(true)} sx={{ position: 'fixed', bottom: 24, right: 24 + right, transition: slide, zIndex: 1050 }}>

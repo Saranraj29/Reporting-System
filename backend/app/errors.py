@@ -45,5 +45,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError):
-        details = [{"loc": [str(x) for x in e["loc"]], "msg": e["msg"]} for e in exc.errors()]
+        # the rule that failed (type + its numbers) travels with the text, so the screen can say it in plain words
+        details = [{"loc": [str(x) for x in e["loc"]], "msg": e["msg"], "type": e.get("type"),
+                    "ctx": {k: v for k, v in (e.get("ctx") or {}).items() if isinstance(v, int | float | str) and not isinstance(v, bool)}} for e in exc.errors()]
         return JSONResponse(_body("validation_error", "Invalid request", details), status_code=422)

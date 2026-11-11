@@ -1,12 +1,14 @@
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import EditIcon from '@mui/icons-material/EditOutlined'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
-import { Alert, Autocomplete, Box, Button, Chip, Grid, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Grid, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { DailyStatusForm } from '../components/DailyStatusDialog'
+import DurationField, { durationHours } from '../components/DurationField'
 import { useNow, useRunningTimer, useTimerActions } from '../timer'
 import { Empty, ErrorAlert, PageHeader } from '../components/ui'
 import { daysAgo, elapsed, fmtDate, hours, today } from '../format'
@@ -31,10 +33,18 @@ export default function MyDay() {
     qc.invalidateQueries({ queryKey: ['dashboard'] })
   }
   const add = useMutation({
-    mutationFn: () => api.post('/time-entries', { task_id: pick!.id, hours: Number(manual.hours), entry_date: manual.date, note: manual.note }),
+    mutationFn: () => api.post('/time-entries', { task_id: pick!.id, hours: durationHours(manual.hours), entry_date: manual.date, note: manual.note }),
     onSuccess: () => { setManual({ ...manual, hours: '', note: '' }); refresh() },
   })
   const del = useMutation({ mutationFn: (id: string) => api.del(`/time-entries/${id}`), onSuccess: refresh })
+  const [editing, setEditing] = useState<TimeEntry | null>(null)
+  const [edit, setEdit] = useState({ hours: '', note: '', date: today() })
+  const startEdit = (e: TimeEntry) => { setEditing(e); setEdit({ hours: hours(e.hours), note: e.note ?? '', date: e.entry_date }) }
+  const save = useMutation({
+    mutationFn: () => api.patch(`/time-entries/${editing!.id}`, { hours: durationHours(edit.hours), note: edit.note, entry_date: edit.date }),
+    onSuccess: () => { setEditing(null); refresh() },
+  })
+  const hoursOk = (v: string) => durationHours(v) !== null
   const todayTotal = (entries.data?.items ?? []).filter((e) => e.entry_date === today() && !e.running).reduce((s, e) => s + e.hours, 0)
   const weekTotal = (entries.data?.items ?? []).filter((e) => !e.running).reduce((s, e) => s + e.hours, 0)
 
@@ -70,9 +80,9 @@ export default function MyDay() {
                 <Grid item xs={12} md={5}>
                   <Autocomplete size="small" options={open} value={pick} onChange={(_, v) => setPick(v)} getOptionLabel={(t) => t.title} renderInput={(p) => <TextField {...p} label="Task" />} />
                 </Grid>
-                <Grid item xs={4} md={2}><TextField size="small" type="number" label="Hours" fullWidth value={manual.hours} onChange={(e) => setManual({ ...manual, hours: e.target.value })} inputProps={{ min: 0.25, max: 24, step: 0.25 }} /></Grid>
+                <Grid item xs={4} md={2}><DurationField value={manual.hours} onChange={(v) => setManual({ ...manual, hours: v })} /></Grid>
                 <Grid item xs={8} md={3}><TextField size="small" type="date" label="Date" fullWidth InputLabelProps={{ shrink: true }} value={manual.date} onChange={(e) => setManual({ ...manual, date: e.target.value })} inputProps={{ max: today() }} /></Grid>
-                <Grid item xs={12} md={2}><Button fullWidth variant="contained" disabled={!pick || !manual.hours || add.isPending} onClick={() => add.mutate()}>Add</Button></Grid>
+                <Grid item xs={12} md={2}><Button fullWidth variant="contained" disabled={!pick || !hoursOk(manual.hours) || add.isPending} onClick={() => add.mutate()}>Add</Button></Grid>
                 <Grid item xs={12}><TextField size="small" fullWidth label="Note (optional)" value={manual.note} onChange={(e) => setManual({ ...manual, note: e.target.value })} /></Grid>
               </Grid>
               <ErrorAlert error={add.error} />
@@ -89,14 +99,32 @@ export default function MyDay() {
                         <TableCell>{fmtDate(e.entry_date)}</TableCell>
                         <TableCell>{e.task_title}</TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>{e.note || '—'}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700 }}>{e.running ? 'running' : hours(e.hours)}</TableCell>
-                        <TableCell align="right">{!e.running && <IconButton size="small" aria-label="Delete entry" onClick={() => del.mutate(e.id)}><DeleteIcon fontSize="small" /></IconButton>}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{e.running ? 'running' : hours(e.hours)}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{!e.running && <><IconButton size="small" aria-label={`Edit time entry on ${e.task_title}`} onClick={() => startEdit(e)}><EditIcon fontSize="small" /></IconButton><IconButton size="small" aria-label={`Delete time entry on ${e.task_title}`} onClick={() => del.mutate(e.id)}><DeleteIcon fontSize="small" /></IconButton></>}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               ) : <Empty>No time logged this week.</Empty>}
             </Paper>
+            <ErrorAlert error={del.error} />
+            {editing && (
+              <Dialog open onClose={() => setEditing(null)} maxWidth="xs" fullWidth>
+                <DialogTitle>Edit time on “{editing.task_title}”</DialogTitle>
+                <DialogContent>
+                  <Stack spacing={2} sx={{ pt: 1 }}>
+                    <DurationField value={edit.hours} onChange={(v) => setEdit({ ...edit, hours: v })} autoFocus />
+                    <TextField size="small" type="date" label="Date" InputLabelProps={{ shrink: true }} value={edit.date} onChange={(e) => setEdit({ ...edit, date: e.target.value })} inputProps={{ max: today() }} />
+                    <TextField size="small" label="Note (optional)" value={edit.note} onChange={(e) => setEdit({ ...edit, note: e.target.value })} />
+                    <ErrorAlert error={save.error} />
+                  </Stack>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setEditing(null)}>Cancel</Button>
+                  <Button variant="contained" disabled={!hoursOk(edit.hours) || save.isPending} onClick={() => save.mutate()}>Save</Button>
+                </DialogActions>
+              </Dialog>
+            )}
           </Stack>
         </Grid>
 

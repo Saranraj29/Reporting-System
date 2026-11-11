@@ -90,9 +90,26 @@ describe('renewing the access token before it expires', () => {
 })
 
 describe('errorMessage', () => {
-  it('flattens validation errors', () => {
-    const e = new ApiError(422, 'validation_error', 'Invalid request', [{ loc: ['body', 'title'], msg: 'String should have at least 1 character' }])
-    expect(errorMessage(e)).toBe('title: String should have at least 1 character')
+  it('says validation errors in plain words', () => {
+    const v = (loc: string, type: string, msg: string, ctx: Record<string, number | string> = {}) => new ApiError(422, 'validation_error', 'Invalid request', [{ loc: ['body', loc], msg, type, ctx }])
+    expect(errorMessage(v('title', 'string_too_short', 'String should have at least 1 character', { min_length: 1 }))).toBe('Title cannot be empty.')
+    expect(errorMessage(v('hours', 'greater_than', 'Input should be greater than 0', { gt: 0 }))).toBe('Hours must be more than 0.')
+    expect(errorMessage(v('eta_hours', 'greater_than_equal', 'Input should be greater than or equal to 0', { ge: 0 }))).toBe('Estimate must be 0 or more.')
+    expect(errorMessage(v('hours', 'less_than_equal', 'Input should be less than or equal to 24', { le: 24 }))).toBe('Hours must be 24 or less.')
+    expect(errorMessage(v('password', 'string_too_short', 'String should have at least 8 characters', { min_length: 8 }))).toBe('Password must have at least 8 characters.')
+    expect(errorMessage(v('name', 'missing', 'Field required'))).toBe('Name is required.')
+    expect(errorMessage(v('email', 'value_error', 'value is not a valid email address: The part after the @-sign is a special-use or reserved name that cannot be used with email.'))).toBe('Enter a valid email address, like name@company.com.')
+    expect(errorMessage(v('due_date', 'date_from_datetime_parsing', 'Input should be a valid date'))).toBe('Due date is not a valid date.')
+  })
+  it('joins several problems and never repeats one', () => {
+    const e = new ApiError(422, 'validation_error', 'Invalid request', [
+      { loc: ['body', 'hours'], msg: 'x', type: 'greater_than', ctx: { gt: 0 } }, { loc: ['body', 'title'], msg: 'y', type: 'missing' }, { loc: ['body', 'hours'], msg: 'x', type: 'greater_than', ctx: { gt: 0 } },
+    ])
+    expect(errorMessage(e)).toBe('Hours must be more than 0. Title is required.')
+  })
+  it('still copes with an older server that sends no rule type', () => {
+    const e = new ApiError(422, 'validation_error', 'Invalid request', [{ loc: ['body', 'ticket_ref'], msg: 'whatever' }])
+    expect(errorMessage(e)).toBe('Ticket ref is not valid.')
   })
   it('appends per-field details', () => {
     const e = new ApiError(400, 'invalid_custom_fields', 'Custom field validation failed', { ticket_ref: 'required' })

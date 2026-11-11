@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import DeleteDialog from '../components/DeleteDialog'
-import { ErrorAlert, PageHeader, SearchBox } from '../components/ui'
+import { ErrorAlert, PageHeader, SearchBox, clickable } from '../components/ui'
 import { initials } from '../format'
 import { useSearch } from '../hooks'
 import type { Page, Role, UserLite } from '../types'
@@ -42,7 +42,7 @@ function Users({ canManage }: { canManage: boolean }) {
           <TableHead><TableRow><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Roles</TableCell><TableCell>Status</TableCell><TableCell align="right">Active</TableCell>{canManage && <TableCell align="right" sx={{ width: 56 }}><span style={{ position: 'absolute', left: -9999 }}>Delete</span></TableCell>}</TableRow></TableHead>
           <TableBody>
             {users.data?.items.map((u) => (
-              <TableRow key={u.id} hover sx={{ cursor: canManage ? 'pointer' : 'default', opacity: u.is_active ? 1 : 0.55 }} onClick={() => canManage && setDlg(u)}>
+              <TableRow key={u.id} hover sx={{ cursor: canManage ? 'pointer' : 'default', opacity: u.is_active ? 1 : 0.55 }} {...(canManage ? clickable(() => setDlg(u)) : {})} aria-label={canManage ? `Edit ${u.name}` : undefined}>
                 <TableCell><Stack direction="row" spacing={1.5} alignItems="center"><Avatar sx={{ width: 32, height: 32, fontSize: 13, bgcolor: 'primary.light' }}>{initials(u.name)}</Avatar><Typography variant="body2" sx={{ fontWeight: 600 }}>{u.name}</Typography></Stack></TableCell>
                 <TableCell>{u.email}</TableCell>
                 <TableCell><Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>{u.roles.map((r) => <Chip key={r.id} size="small" label={r.name} />)}</Stack></TableCell>

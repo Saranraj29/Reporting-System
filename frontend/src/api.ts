@@ -113,10 +113,39 @@ export const api = {
   del: <T,>(path: string) => request<T>('DELETE', path),
 }
 
+const FIELD_NAMES: Record<string, string> = {
+  hours: 'Hours', eta_hours: 'Estimate', email: 'Email', password: 'Password', new_password: 'New password', name: 'Name', title: 'Title', note: 'Note',
+  due_date: 'Due date', start_date: 'Start date', entry_date: 'Date', period_start: 'Start of the period', period_end: 'End of the period',
+  company_name: 'Company name', message: 'Message', reason: 'Reason', body: 'Text', phone: 'Phone', bio: 'About you',
+}
+
+/** One validation failure from the server in plain words ("Hours must be more than 0.") instead of "hours: Input should be greater than 0". */
+export function friendlyValidation(d: { loc: string[]; msg: string; type?: string; ctx?: Record<string, number | string> }): string {
+  const key = d.loc[d.loc.length - 1] ?? ''
+  const label = FIELD_NAMES[key] ?? (key ? key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'This field')
+  const c = d.ctx ?? {}
+  switch (d.type) {
+    case 'missing': return `${label} is required.`
+    case 'greater_than': return `${label} must be more than ${c.gt}.`
+    case 'greater_than_equal': return `${label} must be ${c.ge} or more.`
+    case 'less_than': return `${label} must be less than ${c.lt}.`
+    case 'less_than_equal': return `${label} must be ${c.le} or less.`
+    case 'string_too_short': return Number(c.min_length) <= 1 ? `${label} cannot be empty.` : `${label} must have at least ${c.min_length} characters.`
+    case 'string_too_long': return `${label} can have at most ${c.max_length} characters.`
+    case 'too_short': return `Add at least ${c.min_length} ${Number(c.min_length) === 1 ? 'item' : 'items'} to ${label.toLowerCase()}.`
+    case 'string_pattern_mismatch': return `${label} is not in the expected format.`
+    case 'date_from_datetime_parsing': case 'date_parsing': case 'date_type': return `${label} is not a valid date.`
+    case 'int_parsing': case 'float_parsing': case 'int_type': case 'float_type': return `${label} must be a number.`
+    case 'bool_parsing': return `${label} must be yes or no.`
+    case 'value_error': return /email/i.test(d.msg) || key === 'email' ? 'Enter a valid email address, like name@company.com.' : `${label} is not valid.`
+    default: return key === 'email' ? 'Enter a valid email address, like name@company.com.' : `${label} is not valid.`
+  }
+}
+
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === 'validation_error' && Array.isArray(e.details)) {
-      return (e.details as { loc: string[]; msg: string }[]).map((d) => `${d.loc.slice(1).join('.')}: ${d.msg}`).join('; ')
+      return [...new Set((e.details as { loc: string[]; msg: string; type?: string; ctx?: Record<string, number | string> }[]).map(friendlyValidation))].join(' ')
     }
     if (e.details && typeof e.details === 'object' && !Array.isArray(e.details)) {
       return `${e.message}: ${Object.entries(e.details as Record<string, string>).map(([k, v]) => `${k} ${v}`).join(', ')}`

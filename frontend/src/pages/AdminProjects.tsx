@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import DeleteDialog from '../components/DeleteDialog'
-import { Empty, ErrorAlert, PageHeader, SearchBox } from '../components/ui'
+import { Empty, ErrorAlert, PageHeader, SearchBox, clickable } from '../components/ui'
 import { fmtDate, titleCase } from '../format'
 import { useSearch, useTeams, useUsers } from '../hooks'
 import type { Client, Page, Project, UserLite } from '../types'
@@ -65,10 +65,10 @@ function Projects() {
           <TableHead><TableRow><TableCell>Project</TableCell><TableCell>Team</TableCell><TableCell>Client</TableCell><TableCell>Status</TableCell><TableCell>Dates</TableCell><TableCell>Owners</TableCell><TableCell>Members</TableCell><TableCell align="right" sx={{ width: 56 }}><span style={{ position: 'absolute', left: -9999 }}>Delete</span></TableCell></TableRow></TableHead>
           <TableBody>
             {projects.data?.items.map((p) => (
-              <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} onClick={() => open(p)}>
+              <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} {...clickable(() => open(p))} aria-label={`Edit project ${p.name}`}>
                 <TableCell sx={{ fontWeight: 600 }}>{p.name}</TableCell>
                 <TableCell>{p.team_name ?? '—'}</TableCell>
-                <TableCell>{p.client_name ?? '—'}</TableCell>
+                <TableCell>{p.client_name ?? 'Internal'}</TableCell>
                 <TableCell><Chip size="small" label={titleCase(p.status)} color={p.status === 'active' ? 'success' : 'default'} variant="outlined" /></TableCell>
                 <TableCell>{fmtDate(p.start_date)} – {fmtDate(p.end_date)}</TableCell>
                 <TableCell>{p.owner_ids.length ? p.owner_ids.map((id) => users.find((u) => u.id === id)?.name ?? '…').join(', ') : '—'}</TableCell>

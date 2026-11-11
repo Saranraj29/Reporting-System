@@ -4,7 +4,7 @@ import BlockIcon from '@mui/icons-material/Block'
 import EventBusyIcon from '@mui/icons-material/EventBusyOutlined'
 import EditNoteIcon from '@mui/icons-material/EditNoteOutlined'
 import WbSunnyIcon from '@mui/icons-material/WbSunnyOutlined'
-import { Box, Chip, Grid, List, ListItem, ListItemText, MenuItem, Paper, Skeleton, TextField, Typography } from '@mui/material'
+import { Box, Chip, Grid, List, ListItem, ListItemText, Paper, Skeleton, TextField, Typography } from '@mui/material'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -31,7 +31,9 @@ function Card({ title, children, height }: { title: string; children: React.Reac
 
 export default function Dashboard() {
   const { hasAny, me } = useAuth()
-  const [range, setRange] = useState(30)
+  const [dates, setDates] = useState({ from: daysAgo(29), to: today() })  // the last 30 days until the person picks their own
+  const datesBad = !dates.from || !dates.to || dates.from > dates.to
+  const { from, to } = dates
   const [sel, setSel] = useState<Sel>(NONE)  // team / project / person narrow each other, see LinkedFilters
   const { team, project, user } = sel
   const teams = useTeams()
@@ -40,8 +42,9 @@ export default function Dashboard() {
   const projects = useQuery({ queryKey: ['projects', 'all'], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200 }) })
   const users = useQuery({ queryKey: ['users', 'all'], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200 }), enabled: multiUser })
   const q = useQuery({
-    queryKey: ['dashboard', range, project, user, team],
-    queryFn: () => api.get<DashboardData>('/dashboard', { from: daysAgo(range - 1), to: today(), project, user, team }),
+    queryKey: ['dashboard', from, to, project, user, team],
+    queryFn: () => api.get<DashboardData>('/dashboard', { from, to, project, user, team }),
+    enabled: !datesBad,
     placeholderData: keepPreviousData, // keep the old numbers on screen while a filter change loads: no flicker
   })
   const d = q.data
@@ -56,12 +59,9 @@ export default function Dashboard() {
         subtitle={multiUser ? 'How work is flowing across your projects and people' : 'Your own work at a glance'}
         actions={
           <>
-            <TextField select size="small" label="Range" value={range} onChange={(e) => setRange(Number(e.target.value))} sx={{ minWidth: 130 }}>
-              <MenuItem value={7}>Last 7 days</MenuItem>
-              <MenuItem value={30}>Last 30 days</MenuItem>
-              <MenuItem value={90}>Last 90 days</MenuItem>
-            </TextField>
-            <LinkedFilters value={sel} onChange={setSel} teams={teams} projects={projects.data?.items ?? []} users={multiUser ? users.data?.items ?? [] : undefined} />
+            <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={dates.from} onChange={(e) => setDates({ ...dates, from: e.target.value })} inputProps={{ max: dates.to || today() }} error={datesBad} />
+            <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={dates.to} onChange={(e) => setDates({ ...dates, to: e.target.value })} inputProps={{ min: dates.from, max: today() }} error={datesBad} helperText={datesBad ? 'From must be on or before To.' : undefined} />
+            <LinkedFilters value={sel} onChange={setSel} teams={multiUser ? teams : []} projects={projects.data?.items ?? []} users={multiUser ? users.data?.items ?? [] : undefined} />
           </>
         }
       />
@@ -69,11 +69,11 @@ export default function Dashboard() {
       <Grid container spacing={2.5}>
         {[
           { label: 'Tasks in play', value: d?.total_tasks, icon: <AssignmentIcon />, color: '#3b5bdb', hint: `${d?.tasks_by_status.done ?? 0} done` },
-          { label: 'Hours logged', value: d ? hours(d.total_hours) : undefined, icon: <AccessTimeIcon />, color: '#0ca678', hint: `last ${range} days` },
+          { label: 'Hours logged', value: d ? hours(d.total_hours) : undefined, icon: <AccessTimeIcon />, color: '#0ca678', hint: 'in the chosen dates' },
           { label: 'Overdue', value: d?.overdue_count, icon: <EventBusyIcon />, color: '#e8590c', hint: 'past due, not done' },
           { label: 'Blocked', value: d?.blocked_count, icon: <BlockIcon />, color: '#e03131', hint: 'need attention' },
           { label: 'Morning plans', value: d ? `${d.daily_status.morning_today}/${d.daily_status.expected}` : undefined, icon: <WbSunnyIcon />, color: '#f59f00', hint: 'posted today' },
-          { label: 'End-of-day updates', value: d ? `${d.daily_status.eod_today}/${d.daily_status.expected}` : undefined, icon: <EditNoteIcon />, color: '#7048e8', hint: `${coverage}% of the team` },
+          { label: 'End-of-day updates', value: d ? `${d.daily_status.eod_today}/${d.daily_status.expected}` : undefined, icon: <EditNoteIcon />, color: '#7048e8', hint: multiUser ? `${coverage}% of the team` : d && d.daily_status.eod_today ? 'posted today' : 'not posted yet' },
         ].map((s) => (
           <Grid key={s.label} item xs={6} md={4} lg={2}>
             {q.isLoading ? <Skeleton variant="rounded" height={104} /> : <StatCard label={s.label} value={s.value ?? 0} icon={s.icon} color={s.color} hint={s.hint} />}
@@ -109,7 +109,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e8f0" />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <Tooltip formatter={(v: number) => [`${v}h`, 'Hours']} />
+                  <Tooltip formatter={(v: number) => [hours(v), 'Time']} />
                   <Area isAnimationActive={false} type="monotone" dataKey="hours" stroke="#3b5bdb" strokeWidth={2.5} fill="url(#hrs)" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -124,7 +124,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e4e8f0" />
                   <XAxis type="number" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                   <YAxis type="category" dataKey="project" width={120} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <Tooltip formatter={(v: number) => [`${v}h`, 'Hours']} />
+                  <Tooltip formatter={(v: number) => [hours(v), 'Time']} />
                   <Bar isAnimationActive={false} dataKey="hours" radius={[0, 6, 6, 0]}>
                     {d.hours_by_project.map((_, i) => <Cell key={i} fill={CHART[i % CHART.length]} />)}
                   </Bar>
@@ -141,7 +141,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e8f0" />
                   <XAxis dataKey="activity_type" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <Tooltip formatter={(v: number) => [`${v}h`, 'Hours']} />
+                  <Tooltip formatter={(v: number) => [hours(v), 'Time']} />
                   <Bar isAnimationActive={false} dataKey="hours" radius={[6, 6, 0, 0]}>
                     {d.hours_by_activity.map((_, i) => <Cell key={i} fill={CHART[(i + 2) % CHART.length]} />)}
                   </Bar>

@@ -25,6 +25,7 @@ from ..models import (
 )
 from ..services import jobs
 from ..services.access import my_team_ids, owned_project_ids, project_people, task_project_ids
+from ..services.dashboard import clear_dashboard_cache
 from ..services.timeutil import company_today, tzinfo
 
 router = APIRouter(tags=["tasks"])
@@ -82,6 +83,21 @@ def _editable_task(ctx: Ctx, task_id: uuid.UUID) -> Task:
     return task
 
 
+def _can_delete(ctx: Ctx, task: Task) -> bool:
+    """Everyone who may edit a task may delete it, except a plain assignee (own scope) deleting what someone else created for them."""
+    if not _can_edit(ctx, task):
+        return False
+    return ctx.scope_of("task.edit") in ("team", "all") or task.created_by == ctx.me.id or task.project_id in owned_project_ids(ctx.db, ctx.me.id)
+
+
+def _lock_fresh(ctx: Ctx, task: Task, expected: datetime | None) -> None:
+    """Two people editing one task: the second save waits for the first (row lock), then sees the task has changed since the form was
+    opened and is told, instead of silently overwriting. Clients that send no timestamp keep the old behaviour."""
+    ctx.db.refresh(task, with_for_update=True)
+    if expected is not None and abs((task.updated_at - expected).total_seconds()) > 0.001:
+        raise ApiError(409, "edited_elsewhere", "Someone else changed this task while you had it open. Your change was not saved; the latest version is shown now.")
+
+
 def _assignee_map(ctx: Ctx, task_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[dict]]:
     out: dict[uuid.UUID, list[dict]] = {}
     rows = ctx.db.execute(
@@ -109,7 +125,7 @@ def _task_out(ctx: Ctx, tasks: list[Task]) -> list[dict]:
     today = company_today(ctx.company.timezone)
     return [
         {
-            "id": str(t.id), "project_id": str(t.project_id), "project_name": projects.get(t.project_id),
+            "id": str(t.id), "updated_at": t.updated_at.isoformat(), "project_id": str(t.project_id), "project_name": projects.get(t.project_id),
             "team_id": str(proj_team[t.project_id][0]) if proj_team.get(t.project_id, (None,))[0] else None, "team_name": proj_team.get(t.project_id, (None, None))[1],
             "title": t.title, "description": t.description, "activity_type": t.activity_type,
             "priority": t.priority, "status": t.status,
@@ -209,7 +225,7 @@ def list_tasks(
     q: str | None = None, overdue: bool | None = None, blocked: bool | None = None,
     ctx: Ctx = Depends(require("task.view")), page: Page = Depends(pagination),
 ):
-    stmt = select(Task).order_by(Task.due_date.asc().nulls_last(), Task.created_at.desc())
+    stmt = select(Task).order_by((Task.status == "done").asc(), Task.due_date.asc().nulls_last(), Task.created_at.desc())  # open and late work first, finished last
     clause = _scope_clause(ctx.visible("task.view"), owned_project_ids(ctx.db, ctx.me.id))
     if clause is not None:
         stmt = stmt.where(clause)
@@ -253,6 +269,7 @@ class TaskIn(BaseModel):
 
 
 class TaskPatch(BaseModel):
+    expected_updated_at: datetime | None = None  # the task's updated_at when the form was opened: a mismatch means someone else saved first
     project_id: uuid.UUID | None = None
     title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = None
@@ -310,6 +327,7 @@ def create_task(body: TaskIn, ctx: Ctx = Depends(require("task.edit"))):
     _apply_status(ctx, task, body.status, note=False)
     _note(ctx, task.id, "created this task")
     ctx.db.commit()
+    clear_dashboard_cache()
     return _task_out(ctx, [task])[0]
 
 
@@ -333,12 +351,14 @@ def get_task(task_id: uuid.UUID, ctx: Ctx = Depends(require("task.view"))):
     task = _visible_task(ctx, task_id)
     out = _task_out(ctx, [task])[0]
     out["can_edit"] = _can_edit(ctx, task)
+    out["can_delete"] = _can_delete(ctx, task)
     return out
 
 
 @router.patch("/tasks/{task_id}")
 def patch_task(task_id: uuid.UUID, body: TaskPatch, ctx: Ctx = Depends(require("task.edit"))):
     task = _editable_task(ctx, task_id)
+    _lock_fresh(ctx, task, body.expected_updated_at)
     data = body.model_dump(exclude_unset=True)
     defs = _field_defs(ctx)
     if data.get("activity_type"):
@@ -363,23 +383,29 @@ def patch_task(task_id: uuid.UUID, body: TaskPatch, ctx: Ctx = Depends(require("
     if data.get("status") and data["status"] != task.status:
         _apply_status(ctx, task, data["status"])
     ctx.db.commit()
+    clear_dashboard_cache()
     return _task_out(ctx, [task])[0]
 
 
 @router.delete("/tasks/{task_id}", status_code=204)
 def delete_task(task_id: uuid.UUID, ctx: Ctx = Depends(require("task.edit"))):
     task = _editable_task(ctx, task_id)
+    if not _can_delete(ctx, task):
+        raise forbidden("You can edit this task, but only the person who created it (or a lead or project owner) can delete it")
     ctx.db.delete(task)
     ctx.db.commit()
+    clear_dashboard_cache()
 
 
 class AssigneesIn(BaseModel):
     user_ids: list[uuid.UUID]
+    expected_updated_at: datetime | None = None
 
 
 @router.put("/tasks/{task_id}/assignees")
 def set_assignees(task_id: uuid.UUID, body: AssigneesIn, ctx: Ctx = Depends(require("task.edit"))):
     task = _editable_task(ctx, task_id)
+    _lock_fresh(ctx, task, body.expected_updated_at)
     _check_assignees(ctx, body.user_ids, task.project_id)
     before = {a["id"] for a in _assignee_map(ctx, [task.id]).get(task.id, [])}
     ctx.db.execute(delete(TaskAssignee).where(TaskAssignee.task_id == task.id))
@@ -387,7 +413,9 @@ def set_assignees(task_id: uuid.UUID, body: AssigneesIn, ctx: Ctx = Depends(requ
     if before != {str(u) for u in body.user_ids}:
         names = ctx.db.execute(select(User.name).where(User.id.in_(set(body.user_ids))).order_by(User.name)).scalars().all()
         _note(ctx, task.id, f"set the assignees to **{', '.join(names)}**")
+    task.updated_at = func.now()  # a change of assignees is a change of the task (for the "edited elsewhere" check too)
     ctx.db.commit()
+    clear_dashboard_cache()
     return _task_out(ctx, [task])[0]
 
 
@@ -436,6 +464,7 @@ def _entry_out(e: TimeEntry, title: str | None = None, user_name: str | None = N
         "id": str(e.id), "task_id": str(e.task_id), "task_title": title, "user_id": str(e.user_id), "user_name": user_name,
         "hours": float(e.hours), "entry_date": e.entry_date.isoformat(), "note": e.note,
         "started_at": e.started_at.isoformat() if e.started_at else None,
+        "stopped_at": e.stopped_at.isoformat() if e.stopped_at else None,
         "running": bool(e.started_at and not e.stopped_at),
     }
 
@@ -450,7 +479,27 @@ def _loggable_task(ctx: Ctx, task_id: uuid.UUID) -> Task:
     ).scalar_one()
     if not assigned and not (ctx.scope_of("task.edit") in ("team", "all") and _can_edit(ctx, task)):
         raise forbidden("You can only log time on tasks assigned to you")
+    if task.status == "done":
+        raise conflict("task_done", "This task is done. Reopen it before logging time or starting a timer.")
     return task
+
+
+DAY_LIMIT = Decimal(24)
+
+
+def _day_hours(ctx: Ctx, day: date, exclude: uuid.UUID | None = None) -> Decimal:
+    stmt = select(func.coalesce(func.sum(TimeEntry.hours), 0)).where(TimeEntry.user_id == ctx.me.id, TimeEntry.entry_date == day)
+    if exclude:
+        stmt = stmt.where(TimeEntry.id != exclude)
+    return Decimal(ctx.db.execute(stmt).scalar_one())
+
+
+def _check_day_limit(ctx: Ctx, day: date, hours: Decimal, exclude: uuid.UUID | None = None) -> None:
+    """A day has 24 hours: what is already logged for that date plus the new time may not pass that (manual entries and timers together)."""
+    used = _day_hours(ctx, day, exclude)
+    if used + hours > DAY_LIMIT:
+        left = max(DAY_LIMIT - used, Decimal(0))
+        raise ApiError(409, "daily_limit", f"A day has only 24 hours. You already have {float(used):g} h logged on {day:%d %b}, so at most {float(left):g} h more can be added.")
 
 
 @router.get("/time-entries")
@@ -504,10 +553,12 @@ def create_time_entry(body: EntryIn, ctx: Ctx = Depends(require("task.edit"))):
     day = body.entry_date or today
     if day > today:
         raise bad_request("future_date", "Cannot log time in the future")
+    _check_day_limit(ctx, day, Decimal(str(body.hours)))
     e = TimeEntry(company_id=ctx.company_id, task_id=task.id, user_id=ctx.me.id, hours=Decimal(str(body.hours)), entry_date=day, note=body.note)
     ctx.db.add(e)
     _note(ctx, task.id, f"logged **{body.hours:g}h**" + (f" — {body.note}" if body.note else ""))
     ctx.db.commit()
+    clear_dashboard_cache()
     return _entry_out(e, task.title, ctx.me.name)
 
 
@@ -530,6 +581,7 @@ def start_timer(body: StartIn, ctx: Ctx = Depends(require("task.edit"))):
     except IntegrityError:
         ctx.db.rollback()
         raise conflict("timer_running", "Stop your running timer before starting another") from None
+    clear_dashboard_cache()
     return _entry_out(e, task.title, ctx.me.name)
 
 
@@ -543,9 +595,10 @@ def stop_timer(entry_id: uuid.UUID, ctx: Ctx = Depends(require("task.edit"))):
     now = datetime.now(UTC)
     e.stopped_at = now
     seconds = max((now - e.started_at).total_seconds(), 0)
-    e.hours = min(Decimal(str(round(seconds / 3600, 2))), Decimal(24))
+    e.hours = min(Decimal(str(round(seconds / 3600, 4))), max(DAY_LIMIT - _day_hours(ctx, e.entry_date, exclude=e.id), Decimal(0)))  # never more than the day has left
     _note(ctx, e.task_id, f"tracked **{float(e.hours):g}h** with the timer")
     ctx.db.commit()
+    clear_dashboard_cache()
     return _entry_out(e)
 
 
@@ -570,15 +623,17 @@ def patch_time_entry(entry_id: uuid.UUID, body: EntryPatch, ctx: Ctx = Depends(r
     if e.started_at and not e.stopped_at:
         raise conflict("timer_running", "Stop the timer before editing this entry")
     data = body.model_dump(exclude_unset=True)
-    if data.get("hours") is not None:
-        e.hours = Decimal(str(data["hours"]))
-    if data.get("entry_date"):
-        if data["entry_date"] > company_today(ctx.company.timezone):
-            raise bad_request("future_date", "Cannot log time in the future")
-        e.entry_date = data["entry_date"]
+    new_hours = Decimal(str(data["hours"])) if data.get("hours") is not None else e.hours
+    new_day = data.get("entry_date") or e.entry_date
+    if data.get("entry_date") and data["entry_date"] > company_today(ctx.company.timezone):
+        raise bad_request("future_date", "Cannot log time in the future")
+    if new_hours != e.hours or new_day != e.entry_date:
+        _check_day_limit(ctx, new_day, new_hours, exclude=e.id)
+    e.hours, e.entry_date = new_hours, new_day
     if data.get("note") is not None:
         e.note = data["note"]
     ctx.db.commit()
+    clear_dashboard_cache()
     return _entry_out(e)
 
 
@@ -586,6 +641,7 @@ def patch_time_entry(entry_id: uuid.UUID, body: EntryPatch, ctx: Ctx = Depends(r
 def delete_time_entry(entry_id: uuid.UUID, ctx: Ctx = Depends(require("task.edit"))):
     ctx.db.delete(_own_entry(ctx, entry_id))
     ctx.db.commit()
+    clear_dashboard_cache()
 
 
 # --------------------------------------------------------------------------- daily status
@@ -673,4 +729,5 @@ def put_daily_status(status_date: date, body: StatusIn, ctx: Ctx = Depends(requi
     except IntegrityError:  # two tabs saving at once: the other one created the row first
         ctx.db.rollback()
         raise conflict("status_conflict", "Your status was just saved from another tab; reload and try again") from None
+    clear_dashboard_cache()
     return _status_out(row, ctx.me.name)

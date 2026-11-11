@@ -82,6 +82,25 @@ def prepare(ctx: Ctx, message: str, quick_action: str | None, conversation_id: u
     return TurnPlan(str(ctx.company_id), ctx.me.id, ctx.perms, conv.id, shown, quick_action, page, context, history, dict(conv.summary or {}), now.date(), cfg)
 
 
+def complete_listing(sentences: list[dict[str, Any]], calls: list[dict[str, Any]], restore: Callable[[str], str], year: int) -> list[dict[str, Any]]:
+    """A model that says "4 tasks" must not list only 3. For the upcoming-tasks tool, every row it returned that the answer does not mention
+    is added by code, as a sentence built from the row itself (so it is checked like any other)."""
+    said = " ".join(s["text"] for s in sentences).lower()
+    extra: list[str] = []
+    for c in calls:
+        if c.get("tool") != "get_upcoming" or "error" in c or c.get("returned") != c.get("total") or c.get("returned", 0) > 15:
+            continue
+        for r in c.get("rows", []):
+            title = restore(str(r.get("title", "")))
+            if title and title.lower() not in said:
+                due = date.fromisoformat(r["due_date"])
+                extra.append(f"“{title}” in {restore(str(r.get('project', '')))} is due {due:%d %b} ({str(r.get('status', '')).replace('_', ' ')}).")
+    if not extra:
+        return sentences
+    ev = verify.build_evidence([c for c in calls if "error" not in c], {})
+    return sentences + [{"text": s if (ok := verify.verify_text(s, ev, year).passed) else UNCONFIRMED, "grounded": ok} for s in extra]
+
+
 def _card(calls: list[dict[str, Any]], restore: Callable[[str], str]) -> dict[str, Any] | None:
     """The sources card is built by code from the tool results, never from model prose."""
     sources, project_ids, days = [], [], None
@@ -144,6 +163,8 @@ def run_turn(plan: TurnPlan, emit: Callable[[str, dict[str, Any]], None]) -> Non
                 emit("error", {"code": "assistant.unavailable", "message": "The AI service is not answering right now. The quick actions still work."})
                 return
             sentences, calls, clarify = turn.sentences, turn.calls, turn.clarify
+            if not clarify:
+                sentences = complete_listing(sentences, calls, restore, plan.today.year)
         if clarify:
             emit("clarify", {"text": clarify})
         for s in sentences:

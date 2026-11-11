@@ -80,8 +80,10 @@ def _build_context(ctx: Ctx, d, start: date | None, end: date | None, project, u
     today = company_today(ctx.company.timezone)
     d_start, d_end = d.default_period(today)
     start, end = start or d_start, end or d_end
-    if end < start or (end - start).days > 400:
-        raise bad_request("invalid_range", "Choose a valid date range of at most 400 days")
+    if end < start:
+        raise bad_request("invalid_range", "The From date must be on or before the To date.")
+    if (end - start).days > 400:
+        raise bad_request("invalid_range", "Choose a range of at most 400 days.")
     if ctx.scope_of(d.required_permission) is None:  # a project owner without the report permission: their own projects only, whoever worked in them
         owned = owned_project_ids(ctx.db, ctx.me.id)
         if project and project not in owned:
@@ -373,8 +375,10 @@ def generate_from_template(template_id: uuid.UUID, body: GenerateIn | None = Non
     today = company_today(ctx.company.timezone)
     body = body or GenerateIn()
     start, end = (body.from_, body.to) if body.from_ and body.to else runs.previous_full_period(t.base_report, today)
-    if end < start or (end - start).days > 400:
-        raise bad_request("invalid_range", "Choose a valid date range of at most 400 days")
+    if end < start:
+        raise bad_request("invalid_range", "The From date must be on or before the To date.")
+    if (end - start).days > 400:
+        raise bad_request("invalid_range", "Choose a range of at most 400 days.")
     if body.user and not ctx.db.get(User, body.user):
         raise bad_request("invalid_user", "Person does not exist")
     run = ReportRun(

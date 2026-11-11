@@ -29,6 +29,7 @@ from ..models import (
 from ..security import decrypt, encrypt
 from ..services import reminders
 from ..services.access import task_project_ids, visible_project_ids
+from ..services.dashboard import clear_dashboard_cache
 from ..services.timeutil import valid_timezone
 from .auth import PUBLIC_DOMAINS
 
@@ -175,6 +176,7 @@ def delete_project(project_id: uuid.UUID, force: bool = False, ctx: Ctx = Depend
                        "archiving the project keeps them.", {"tasks": n, "hours": float(hours)})
     ctx.db.delete(project)
     ctx.db.commit()
+    clear_dashboard_cache()
 
 
 class ProjectMembersIn(BaseModel):

@@ -25,7 +25,7 @@ from .models import (
 )
 from .security import hash_password
 from .services.tenancy import provision_company
-from .services.timeutil import company_today
+from .services.timeutil import company_today, tzinfo
 
 PASSWORD = "Demo@12345"
 DOMAIN = "northwind.dev"
@@ -85,10 +85,12 @@ def run() -> None:
         "Web Squad": (users["karthik"], ["karthik", "divya", "arjun", "meera"]),
         "Mobile Squad": (users["sanjay"], ["sanjay", "nisha"]),
     }
+    team_rows: dict[str, Team] = {}
     for tname, (lead, members) in teams.items():
         t = Team(company_id=cid, name=tname, lead_user_id=lead.id)
         db.add(t)
         db.flush()
+        team_rows[tname] = t
         db.add_all(TeamMember(company_id=cid, team_id=t.id, user_id=users[m].id) for m in members)
     clients = {
         "Contoso Retail": Client(company_id=cid, name="Contoso Retail", contact_name="Hannah Cole", contact_email="hannah@contoso-retail.com"),
@@ -99,9 +101,9 @@ def run() -> None:
     db.add_all(ClientContact(company_id=cid, client_id=c.id, name=c.contact_name, email=c.contact_email) for c in clients.values())
     today = company_today(company.timezone)
     projects = {
-        "Website Revamp": Project(company_id=cid, name="Website Revamp", client_id=clients["Contoso Retail"].id, start_date=today - timedelta(days=60), end_date=today + timedelta(days=40)),
-        "Mobile App": Project(company_id=cid, name="Mobile App", client_id=clients["Fabrikam"].id, start_date=today - timedelta(days=45), end_date=today + timedelta(days=75)),
-        "Internal Tools": Project(company_id=cid, name="Internal Tools", start_date=today - timedelta(days=90)),
+        "Website Revamp": Project(company_id=cid, name="Website Revamp", client_id=clients["Contoso Retail"].id, team_id=team_rows["Web Squad"].id, start_date=today - timedelta(days=60), end_date=today + timedelta(days=40)),
+        "Mobile App": Project(company_id=cid, name="Mobile App", client_id=clients["Fabrikam"].id, team_id=team_rows["Mobile Squad"].id, start_date=today - timedelta(days=45), end_date=today + timedelta(days=75)),
+        "Internal Tools": Project(company_id=cid, name="Internal Tools", team_id=team_rows["Web Squad"].id, start_date=today - timedelta(days=90)),
     }
     db.add_all(projects.values())
     db.flush()
@@ -141,7 +143,7 @@ def run() -> None:
             skip_eod = (local == "meera" and n % 3 == 1) or (day == today and local in ("divya", "sanjay"))
             if skip_morning and skip_eod:
                 continue
-            base = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
+            base = datetime.combine(day, datetime.min.time(), tzinfo=tzinfo(company.timezone))  # 9:xx and 17:xx company time, not UTC
             db.add(DailyStatus(
                 company_id=cid, user_id=users[local].id, status_date=day,
                 plan_today="" if skip_morning else plans[(n + len(local)) % len(plans)],

@@ -16,7 +16,7 @@ export function useRunningTimer() {
     queryKey: ['running-timer'],
     queryFn: () => api.get<TimeEntry | null>('/time-entries/running'),
     enabled: !!me,
-    staleTime: 0,
+    staleTime: 30_000,  // every header, panel and page asks the same question: once every 30 s at most, not on every mount
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   })

@@ -18,7 +18,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
           </Typography>
         )}
       </Box>
-      {actions && <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">{actions}</Stack>}
+      {actions && <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>{actions}</Stack>}
     </Stack>
   )
 }
@@ -115,11 +115,33 @@ export function ReportFrame({ html, height = 760 }: { html: string; height?: num
 }
 
 /** The search box used on every list: shows a hint until 3 characters are typed (that is when the search request is sent). */
+/** Props that make a clickable table row / card work from the keyboard too: it can be reached with Tab and opened with Enter or Space. */
+export function clickable(activate: () => void) {
+  return {
+    onClick: activate,
+    tabIndex: 0,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); activate() }
+    },
+  }
+}
+
+/** Shown in place of a page the person is not allowed to open (instead of silently sending them somewhere else). */
+export function NoAccess({ onHome }: { onHome: () => void }) {
+  return (
+    <Paper sx={{ p: 4, maxWidth: 520, mx: 'auto', mt: 4, textAlign: 'center' }} role="alert">
+      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>You do not have access to this page</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>Your role does not include it. If you think it should, ask an administrator.</Typography>
+      <Button variant="contained" onClick={onHome}>Go to the dashboard</Button>
+    </Paper>
+  )
+}
+
 export function SearchBox({ value, onChange, placeholder = 'Search', width }: { value: string; onChange: (v: string) => void; placeholder?: string; width?: number | string }) {
   const short = value.trim().length > 0 && value.trim().length < 3
   return (
     <TextField size="small" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} sx={{ width: width ?? { xs: '100%', sm: 320 } }}
-      inputProps={{ 'aria-label': placeholder, type: 'search' }} helperText={short ? 'Type at least 3 characters to search' : undefined}
+      inputProps={{ 'aria-label': placeholder }} helperText={short ? 'Type at least 3 characters to search' : undefined}
       InputProps={{
         startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
         endAdornment: value ? <InputAdornment position="end"><IconButton size="small" aria-label="Clear search" onClick={() => onChange('')}><CloseIcon fontSize="small" /></IconButton></InputAdornment> : undefined,

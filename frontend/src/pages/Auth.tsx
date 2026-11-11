@@ -93,8 +93,12 @@ export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [unverified, setUnverified] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [missing, setMissing] = useState<{ email?: string; password?: string }>({})
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    const gaps = { email: email.trim() ? undefined : 'Enter your work email.', password: password ? undefined : 'Enter your password.' }
+    setMissing(gaps)
+    if (gaps.email || gaps.password) return
     setBusy(true)
     setError(null)
     setUnverified(false)
@@ -110,10 +114,10 @@ export function Login() {
   }
   return (
     <Shell title="Welcome back" subtitle="Sign in to your workspace">
-      <form onSubmit={submit}>
+      <form onSubmit={submit} noValidate>
         <Stack spacing={2}>
-          <TextField label="Work email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required autoFocus />
-          <PasswordField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          <TextField label="Work email" type="email" value={email} onChange={(e) => { setEmail(e.target.value); setError(null); setMissing({}) }} autoComplete="username" required autoFocus error={!!missing.email} helperText={missing.email} />
+          <PasswordField label="Password" value={password} onChange={(e) => { setPassword(e.target.value); setError(null); setMissing({}) }} autoComplete="current-password" required error={!!missing.password} helperText={missing.password} />
           {error && <Alert severity="error">{error}</Alert>}
           {unverified && <ResendVerification email={email} />}
           <Button type="submit" variant="contained" size="large" disabled={busy}>

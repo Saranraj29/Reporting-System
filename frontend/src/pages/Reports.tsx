@@ -39,7 +39,7 @@ export default function Reports() {
   const report = useQuery({
     queryKey: ['report', info?.key, range, project, person, team],
     queryFn: () => api.get<{ html: string; figures: Record<string, any> }>(`/reports/${info!.key}`, { from: range!.from, to: range!.to, project, user: person, team }),
-    enabled: !!info && !!range,
+    enabled: !!info && !!range && range.from <= range.to,
     placeholderData: keepPreviousData, // old report stays visible while the new one loads
   })
   const [exportId, setExportId] = useState<string | null>(null)
@@ -70,7 +70,7 @@ export default function Reports() {
       <Paper sx={{ p: 2, mb: 2.5 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
           <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={range?.from ?? ''} onChange={(e) => setRange({ from: e.target.value, to: range?.to ?? e.target.value })} />
-          <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={range?.to ?? ''} onChange={(e) => setRange({ from: range?.from ?? e.target.value, to: e.target.value })} />
+          <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={range?.to ?? ''} onChange={(e) => setRange({ from: range?.from ?? e.target.value, to: e.target.value })} error={!!range && range.from > range.to} helperText={range && range.from > range.to ? 'To must be on or after From.' : undefined} />
           <LinkedFilters value={sel} onChange={setSel} teams={teams} projects={reportable} users={users.data?.items ?? []} everyone="Everyone in scope" widths={[160, 180, 190]} />
         </Stack>
       </Paper>

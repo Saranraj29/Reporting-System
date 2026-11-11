@@ -5,7 +5,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useState } from 'react'
 import { api } from '../api'
 import DeleteDialog from '../components/DeleteDialog'
-import { Empty, ErrorAlert, PageHeader, SearchBox } from '../components/ui'
+import { Empty, ErrorAlert, PageHeader, SearchBox, clickable } from '../components/ui'
 import { useSearch } from '../hooks'
 import type { Client, Contact, Page } from '../types'
 
@@ -40,7 +40,7 @@ function Clients() {
           <TableHead><TableRow><TableCell>Client</TableCell><TableCell>Primary contact</TableCell><TableCell align="right" sx={{ width: 56 }}><span style={{ position: 'absolute', left: -9999 }}>Delete</span></TableCell></TableRow></TableHead>
           <TableBody>
             {clients.data?.items.map((cl) => (
-              <TableRow key={cl.id} hover selected={sel?.id === cl.id} sx={{ cursor: 'pointer' }} onClick={() => setSel(cl)}>
+              <TableRow key={cl.id} hover selected={sel?.id === cl.id} sx={{ cursor: 'pointer' }} {...clickable(() => setSel(cl))} aria-label={`Show ${cl.name}`}>
                 <TableCell sx={{ fontWeight: 600 }}>{cl.name}</TableCell>
                 <TableCell>{cl.contact_name ? `${cl.contact_name} · ${cl.contact_email}` : '—'}</TableCell>
                 <TableCell align="right" onClick={(e) => e.stopPropagation()}><Tooltip title="Delete"><IconButton size="small" aria-label={`Delete ${cl.name}`} onClick={() => setDel(cl)}><DeleteIcon fontSize="small" /></IconButton></Tooltip></TableCell>

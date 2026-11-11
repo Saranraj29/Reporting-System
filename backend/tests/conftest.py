@@ -187,11 +187,11 @@ def _seed_work(o, owner_conn):
     t3 = task(o.mgr, hermes, "Fix pipeline", o.m1)
     t4 = task(o.mgr, o.project, "Write docs", o.m1, due_date=(today - dt.timedelta(days=3)).isoformat())
     t5 = task(o.mgr, o.project, "Outside work", o.out)
-    o.m1.patch(f"/tasks/{t1['id']}", {"status": "done"}).raise_for_status()
-    o.m2.patch(f"/tasks/{t2['id']}", {"status": "in_progress"}).raise_for_status()
-    o.m1.patch(f"/tasks/{t3['id']}", {"status": "blocked"}).raise_for_status()
     for api, t, h in ((o.m1, t1, 3), (o.m2, t2, 2), (o.m1, t3, 1), (o.out, t5, 4)):
         api.post("/time-entries", {"task_id": t["id"], "hours": h}).raise_for_status()
+    o.m1.patch(f"/tasks/{t1['id']}", {"status": "done"}).raise_for_status()  # time can no longer be logged on a finished task, so finish it afterwards
+    o.m2.patch(f"/tasks/{t2['id']}", {"status": "in_progress"}).raise_for_status()
+    o.m1.patch(f"/tasks/{t3['id']}", {"status": "blocked"}).raise_for_status()
     o.hermes, o.tasks = hermes, dict(t1=t1, t2=t2, t3=t3, t4=t4, t5=t5)
     o.today = today
     return o

@@ -28,6 +28,8 @@ export interface Assignee {
   name: string
 }
 export interface Task {
+  updated_at: string  // sent back when saving, so a change made by somebody else in the meantime is noticed
+  can_delete?: boolean
   id: string
   project_id: string
   project_name: string
@@ -103,6 +105,7 @@ export interface TimeEntry {
   entry_date: string
   note: string
   started_at: string | null
+  stopped_at?: string | null
   running: boolean
 }
 export interface DailyStatus {
