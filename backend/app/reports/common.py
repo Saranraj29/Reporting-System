@@ -8,7 +8,10 @@ from sqlalchemy import text
 from .base import ReportContext
 
 _TASK_SCOPE = "(CAST(:uids AS uuid[]) IS NULL OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ANY(CAST(:uids AS uuid[]))))"
-_PROJ = "(CAST(:project AS uuid) IS NULL OR t.project_id = CAST(:project AS uuid))"
+_PROJ = (  # the chosen project, and (a project owner's report) only the projects they own
+    "(CAST(:project AS uuid) IS NULL OR t.project_id = CAST(:project AS uuid))"
+    " AND (CAST(:owned AS uuid[]) IS NULL OR t.project_id = ANY(CAST(:owned AS uuid[])))"
+)
 _CLIENT = (  # client AND team filters (both optional): the projects of one client / one team
     "(CAST(:client AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE client_id = CAST(:client AS uuid)))"
     " AND (CAST(:team AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE team_id = CAST(:team AS uuid)))"
@@ -62,6 +65,7 @@ def summary_figures(rc: ReportContext) -> dict[str, Any]:
               (SELECT count(*) FROM tasks t WHERE t.project_id = pr.id AND t.status <> 'done' AND t.created_at::date <= :to AND {_TASK_SCOPE}) AS open
             FROM projects pr LEFT JOIN clients c ON c.id = pr.client_id
             WHERE (CAST(:project AS uuid) IS NULL OR pr.id = CAST(:project AS uuid))
+              AND (CAST(:owned AS uuid[]) IS NULL OR pr.id = ANY(CAST(:owned AS uuid[])))
               AND (CAST(:client AS uuid) IS NULL OR pr.client_id = CAST(:client AS uuid))
             ORDER BY hours DESC, pr.name"""), p)
         if r.hours or r.completed or r.open
@@ -125,7 +129,8 @@ def summary_figures(rc: ReportContext) -> dict[str, Any]:
                 ORDER BY hours DESC, u.name"""), p)
             if r.hours or r.completed
         ]
-        figures.update(check_in_figures(rc))
+        if rc.include_check_ins:
+            figures.update(check_in_figures(rc))
     return figures
 
 

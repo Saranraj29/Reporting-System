@@ -1,15 +1,18 @@
 import AddIcon from '@mui/icons-material/Add'
-import { Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, TextField, Typography } from '@mui/material'
+import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import { Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { api } from '../api'
+import DeleteDialog from '../components/DeleteDialog'
 import { Empty, ErrorAlert, PageHeader, SearchBox } from '../components/ui'
 import { useSearch, useUsers } from '../hooks'
 import type { Team, UserLite } from '../types'
 
 export default function AdminTeams() {
   const qc = useQueryClient()
+  const [del, setDel] = useState<Team | null>(null)
   const users = useUsers()
   const search = useSearch()
   const teams = useQuery({ queryKey: ['teams', search.term], queryFn: () => api.get<{ items: Team[] }>('/teams', { q: search.term }), placeholderData: keepPreviousData })
@@ -53,11 +56,13 @@ export default function AdminTeams() {
                 <Chip size="small" label={`${t.open_tasks} open task${t.open_tasks === 1 ? '' : 's'}`} color={t.open_tasks ? 'primary' : 'default'} variant="outlined" />
                 <Button size="small" component={RouterLink} to={`/admin/projects?team=${t.id}`}>Projects</Button>
                 <Button size="small" component={RouterLink} to={`/tasks?team=${t.id}`}>Tasks</Button>
+                <Tooltip title="Delete"><IconButton size="small" aria-label={`Delete ${t.name}`} onClick={() => setDel(t)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
               </Stack>
             </Stack>
           </Paper>
         ))}
         {teams.data?.items.length === 0 && <Empty>{search.term ? 'No team matches your search.' : 'No teams yet. Create the first one.'}</Empty>}
+      {del && <DeleteDialog title={`Delete ${del.name}?`} description="The team is removed. Its projects are kept, but will no longer belong to a team." path={`/teams/${del.id}`} onClose={() => setDel(null)} onDeleted={() => { qc.invalidateQueries({ queryKey: ['teams'] }); qc.invalidateQueries({ queryKey: ['projects'] }) }} />}
       </Stack>
       {dlg && (
         <Dialog open onClose={() => setDlg(null)} fullWidth maxWidth="sm">

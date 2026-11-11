@@ -1,14 +1,17 @@
 import DescriptionIcon from '@mui/icons-material/DescriptionOutlined'
+import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import DownloadIcon from '@mui/icons-material/Download'
 import ArticleIcon from '@mui/icons-material/ArticleOutlined'
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import TableChartIcon from '@mui/icons-material/TableChartOutlined'
-import { Alert, Box, Button, CircularProgress, LinearProgress, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { Alert, Box, Button, CircularProgress, IconButton, LinearProgress, Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
+import { useAuth } from '../auth'
 import LinkedFilters from '../components/LinkedFilters'
+import DeleteDialog from '../components/DeleteDialog'
 import { Empty, ErrorAlert, PageHeader, ReportFrame, RunStatusChip } from '../components/ui'
 import { NONE, type Sel } from '../filters'
 import { fmtDate, fmtDateTime } from '../format'
@@ -17,7 +20,11 @@ import type { Page, Project, ReportInfo, RunDetail, RunSummary, UserLite } from 
 
 export default function Reports() {
   const list = useQuery({ queryKey: ['reports'], queryFn: () => api.get<{ items: ReportInfo[] }>('/reports') })
+  const { me, hasAny } = useAuth()
   const projects = useQuery({ queryKey: ['projects', 'all'], queryFn: () => api.get<Page<Project>>('/projects', { limit: 200 }) })
+  // someone who only owns projects (no report permission) can run reports for those projects only
+  const ownerOnly = !hasAny('report.weekly.view', 'report.monthly.view', 'report.performance.view', 'report.visibility.view')
+  const reportable = (projects.data?.items ?? []).filter((p) => !ownerOnly || p.owner_ids.includes(me?.id ?? ''))
   const [tab, setTab] = useState(0)
   const [range, setRange] = useState<{ from: string; to: string } | null>(null)
   const [sel, setSel] = useState<Sel>(NONE)  // team / project / person narrow each other, see LinkedFilters
@@ -40,6 +47,8 @@ export default function Reports() {
     mutationFn: (format: string) => api.post<{ id: string }>(`/reports/${info!.key}/export`, { from: range!.from, to: range!.to, project: project || null, user: person || null, team: team || null }, { format }),
     onSuccess: (r) => setExportId(r.id),
   })
+  const [del, setDel] = useState<RunSummary | null>(null)
+  const qc = useQueryClient()
   const recent = useQuery({ queryKey: ['report-runs', 'export'], queryFn: () => api.get<Page<RunSummary>>('/report-runs', { kind: 'export', limit: 8 }), refetchInterval: 5000 })
 
   if (list.isLoading) return <CircularProgress />
@@ -62,7 +71,7 @@ export default function Reports() {
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
           <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={range?.from ?? ''} onChange={(e) => setRange({ from: e.target.value, to: range?.to ?? e.target.value })} />
           <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={range?.to ?? ''} onChange={(e) => setRange({ from: range?.from ?? e.target.value, to: e.target.value })} />
-          <LinkedFilters value={sel} onChange={setSel} teams={teams} projects={projects.data?.items ?? []} users={users.data?.items ?? []} everyone="Everyone in scope" widths={[160, 180, 190]} />
+          <LinkedFilters value={sel} onChange={setSel} teams={teams} projects={reportable} users={users.data?.items ?? []} everyone="Everyone in scope" widths={[160, 180, 190]} />
         </Stack>
       </Paper>
       <ErrorAlert error={report.error ?? exp.error} />
@@ -77,10 +86,12 @@ export default function Reports() {
             <Stack direction="row" spacing={1} alignItems="center">
               <RunStatusChip status={r.status} />
               <Button size="small" component={RouterLink} to={`/reports/runs/${r.id}`}>Open</Button>
+              <Tooltip title="Delete export"><IconButton size="small" aria-label={`Delete ${r.title}`} onClick={() => setDel(r)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
             </Stack>
           </Stack>
         )) : <Typography variant="body2" color="text.secondary">Exports you request show up here.</Typography>}
       </Paper>
+      {del && <DeleteDialog title="Delete this export?" description={`“${del.title}” (${fmtDate(del.period_start)} – ${fmtDate(del.period_end)}) and its files are removed. This cannot be undone.`} path={`/report-runs/${del.id}`} onClose={() => setDel(null)} onDeleted={() => { qc.invalidateQueries({ queryKey: ['report-runs'] }); qc.invalidateQueries({ queryKey: ['run'] }) }} />}
     </>
   )
 }
@@ -102,9 +113,14 @@ export function ExportRun() {
   const { id } = useParams()
   const run = useQuery({ queryKey: ['run', id], queryFn: () => api.get<RunDetail>(`/report-runs/${id}`), refetchInterval: (q) => (q.state.data?.status === 'queued' ? 2000 : false) })
   const r = run.data
+  const nav = useNavigate()
+  const qc = useQueryClient()
+  const [removing, setRemoving] = useState(false)
   return (
     <>
-      <PageHeader title={r?.title ?? 'Report'} subtitle={r ? `${fmtDate(r.period_start)} – ${fmtDate(r.period_end)} · requested ${fmtDateTime(r.created_at)}` : undefined} />
+      <PageHeader title={r?.title ?? 'Report'} subtitle={r ? `${fmtDate(r.period_start)} – ${fmtDate(r.period_end)} · requested ${fmtDateTime(r.created_at)}` : undefined}
+        actions={r && <Button color="error" startIcon={<DeleteIcon />} onClick={() => setRemoving(true)}>Delete</Button>} />
+      {removing && r && <DeleteDialog title="Delete this report?" description="The report and its files are removed. This cannot be undone." path={`/report-runs/${r.id}`} onClose={() => setRemoving(false)} onDeleted={() => { qc.invalidateQueries({ queryKey: ['report-runs'] }); nav('/reports') }} />}
       <ErrorAlert error={run.error} />
       {r && (
         <Paper sx={{ p: 3 }}>

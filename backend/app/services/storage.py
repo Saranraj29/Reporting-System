@@ -1,4 +1,4 @@
-"""Report file storage. Local-disk backend; an S3 backend only has to implement put/get."""
+"""Report file storage. Local-disk backend; an S3 backend only has to implement put/get/delete."""
 
 import re
 from pathlib import Path
@@ -30,3 +30,11 @@ def put(key: str, data: bytes) -> str:
 
 def get(key: str) -> bytes:
     return _safe(key).read_bytes()
+
+
+def delete(key: str) -> None:
+    """Remove a stored file; a file that is already gone is fine."""
+    try:
+        _safe(key).unlink(missing_ok=True)
+    except ValueError:
+        pass

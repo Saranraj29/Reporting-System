@@ -12,11 +12,12 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import AccountTreeIcon from '@mui/icons-material/AccountTreeOutlined'
 import TableChartIcon from '@mui/icons-material/TableChartOutlined'
 import UploadIcon from '@mui/icons-material/UploadFileOutlined'
-import { Alert, Autocomplete, Box, Button, Chip, CircularProgress, Collapse, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Autocomplete, Box, Button, Chip, CircularProgress, Collapse, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import DeleteDialog from '../components/DeleteDialog'
 import { Empty, ErrorAlert, PageHeader, ReportFrame } from '../components/ui'
 import { fmtDate } from '../format'
 import type { AiOutlineSection, AiReportDetail, AiReportOptions, AiReportSummary } from '../types'
@@ -71,6 +72,7 @@ export default function AiReports() {
   const qc = useQueryClient()
   const options = useQuery({ queryKey: ['ai-options'], queryFn: () => api.get<AiReportOptions>('/ai-reports/options') })
   const list = useQuery({ queryKey: ['ai-reports'], queryFn: () => api.get<{ items: AiReportSummary[] }>('/ai-reports') })
+  const [del, setDel] = useState<AiReportSummary | null>(null)
   const [request, setRequest] = useState('')
   const [projects, setProjects] = useState<Option[]>([])
   const [people, setPeople] = useState<Option[]>([])
@@ -164,11 +166,17 @@ export default function AiReports() {
                 <Typography sx={{ fontWeight: 600 }} noWrap>{r.title}</Typography>
                 <Typography variant="caption" color="text.secondary">{fmtDate(r.period_start)} – {fmtDate(r.period_end)}{r.request ? ` · ${r.request.slice(0, 80)}` : ''}</Typography>
               </Box>
-              {statusChip(r.status)}
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                {statusChip(r.status)}
+                <Tooltip title="Delete report">
+                  <IconButton size="small" aria-label={`Delete ${r.title}`} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDel(r) }}><DeleteIcon fontSize="small" /></IconButton>
+                </Tooltip>
+              </Stack>
             </Stack>
           ))}
         </Paper>
       ) : <Empty>No reports yet. Create the first one above.</Empty>}
+      {del && <DeleteDialog title="Delete this report?" description={`“${del.title}” and its downloads are removed. This cannot be undone.`} path={`/ai-reports/${del.id}`} onClose={() => setDel(null)} onDeleted={() => qc.invalidateQueries({ queryKey: ['ai-reports'] })} />}
     </>
   )
 }

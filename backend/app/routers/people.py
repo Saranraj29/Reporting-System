@@ -7,12 +7,26 @@ from sqlalchemy import delete, func, select, text
 
 from ..config import get_settings
 from ..deps import Ctx, Page, get_ctx, paged, pagination, require, require_any
-from ..errors import bad_request, conflict, not_found
-from ..models import Permission, Project, Role, RolePermission, Task, Team, TeamMember, User, UserRole
+from ..errors import ApiError, bad_request, conflict, not_found
+from ..models import (
+    DailyStatus,
+    Permission,
+    Project,
+    Role,
+    RolePermission,
+    Task,
+    TaskAssignee,
+    TaskComment,
+    Team,
+    TeamMember,
+    TimeEntry,
+    User,
+    UserRole,
+)
 from ..perms import PERMISSIONS
 from ..security import hash_password, make_email_token
 from ..services import mail
-from ..services.access import clear_permission_cache, owned_project_ids
+from ..services.access import clear_permission_cache, owned_project_ids, visible_team_ids
 
 router = APIRouter(tags=["people"])
 
@@ -184,6 +198,30 @@ class UserPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     is_active: bool | None = None
     role_ids: list[uuid.UUID] | None = None
+
+
+@router.delete("/users/{user_id}", status_code=204)
+def delete_user(user_id: uuid.UUID, ctx: Ctx = Depends(require("user.manage"))):
+    """Remove an account that has no work history. Someone who has worked (tasks, hours, comments, check-ins) cannot be deleted, because
+    their history would go with them: deactivate them instead (they cannot sign in, everything they did stays)."""
+    user = ctx.db.get(User, user_id)
+    if not user:
+        raise not_found("User")
+    if user.id == ctx.me.id:
+        raise bad_request("cannot_delete_self", "You cannot delete your own account")
+    count = lambda model, col: ctx.db.execute(select(func.count()).select_from(model).where(col == user.id)).scalar_one()  # noqa: E731
+    tasks, entries = count(TaskAssignee, TaskAssignee.user_id), count(TimeEntry, TimeEntry.user_id)
+    comments, check_ins = count(TaskComment, TaskComment.user_id), count(DailyStatus, DailyStatus.user_id)
+    if tasks or entries or comments or check_ins:
+        raise ApiError(
+            409, "has_history",
+            f"{user.name} has work history ({tasks} tasks, {entries} time entries, {comments} comments, {check_ins} check-ins). "
+            "Deleting would remove all of it. Deactivate the account instead: they cannot sign in and the history stays.",
+            {"tasks": tasks, "time_entries": entries, "comments": comments, "check_ins": check_ins},
+        )
+    ctx.db.delete(user)
+    ctx.db.commit()
+    clear_permission_cache()
 
 
 @router.patch("/users/{user_id}")
@@ -387,10 +425,26 @@ def _check_users(ctx: Ctx, ids: list[uuid.UUID]) -> None:
 @router.get("/teams")
 def list_teams(q: str | None = None, ctx: Ctx = Depends(get_ctx)):
     stmt = select(Team).order_by(Team.name)
+    visible = visible_team_ids(ctx.db, ctx.me.id, ctx.perms)  # their own teams and those of the projects they can see
+    if visible is not None:
+        stmt = stmt.where(Team.id.in_(visible))
     if q:
         stmt = stmt.where(Team.name.ilike(f"%{q}%") | Team.description.ilike(f"%{q}%"))
     teams = ctx.db.execute(stmt).scalars().all()
     return {"items": _team_out(ctx, list(teams))}
+
+
+@router.delete("/teams/{team_id}", status_code=204)
+def delete_team(team_id: uuid.UUID, force: bool = False, ctx: Ctx = Depends(require("project.manage"))):
+    """Delete a team. Its projects are kept (they just have no team any more); with projects attached the person must confirm (force)."""
+    team = ctx.db.get(Team, team_id)
+    if not team:
+        raise not_found("Team")
+    n = ctx.db.execute(select(func.count()).select_from(Project).where(Project.team_id == team.id)).scalar_one()
+    if n and not force:
+        raise ApiError(409, "in_use", f"{team.name} has {n} project{'s' if n != 1 else ''}. They are kept, but will no longer belong to a team.", {"projects": n})
+    ctx.db.delete(team)
+    ctx.db.commit()
 
 
 @router.post("/teams", status_code=201)

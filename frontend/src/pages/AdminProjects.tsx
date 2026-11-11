@@ -1,9 +1,11 @@
 import AddIcon from '@mui/icons-material/Add'
-import { Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField } from '@mui/material'
+import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import { Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import DeleteDialog from '../components/DeleteDialog'
 import { Empty, ErrorAlert, PageHeader, SearchBox } from '../components/ui'
 import { fmtDate, titleCase } from '../format'
 import { useSearch, useTeams, useUsers } from '../hooks'
@@ -28,6 +30,7 @@ function Projects() {
   const clients = useQuery({ queryKey: ['clients'], queryFn: () => api.get<Page<Client>>('/clients', { limit: 200 }) })
   const users = useUsers()
   const [dlg, setDlg] = useState<Project | 'new' | null>(null)
+  const [del, setDel] = useState<Project | null>(null)
   const [f, setF] = useState({ name: '', client_id: '', team_id: '', status: 'active', start_date: '', end_date: '' })
   const [members, setMembers] = useState<UserLite[]>([])
   const [owners, setOwners] = useState<UserLite[]>([])
@@ -59,7 +62,7 @@ function Projects() {
       </Stack>
       <Paper sx={{ overflow: 'hidden' }}>
         <Table>
-          <TableHead><TableRow><TableCell>Project</TableCell><TableCell>Team</TableCell><TableCell>Client</TableCell><TableCell>Status</TableCell><TableCell>Dates</TableCell><TableCell>Owners</TableCell><TableCell>Members</TableCell></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>Project</TableCell><TableCell>Team</TableCell><TableCell>Client</TableCell><TableCell>Status</TableCell><TableCell>Dates</TableCell><TableCell>Owners</TableCell><TableCell>Members</TableCell><TableCell align="right" sx={{ width: 56 }}><span style={{ position: 'absolute', left: -9999 }}>Delete</span></TableCell></TableRow></TableHead>
           <TableBody>
             {projects.data?.items.map((p) => (
               <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} onClick={() => open(p)}>
@@ -70,12 +73,14 @@ function Projects() {
                 <TableCell>{fmtDate(p.start_date)} – {fmtDate(p.end_date)}</TableCell>
                 <TableCell>{p.owner_ids.length ? p.owner_ids.map((id) => users.find((u) => u.id === id)?.name ?? '…').join(', ') : '—'}</TableCell>
                 <TableCell>{p.member_ids.length}</TableCell>
+                <TableCell align="right" onClick={(e) => e.stopPropagation()}><Tooltip title="Delete"><IconButton size="small" aria-label={`Delete ${p.name}`} onClick={() => setDel(p)}><DeleteIcon fontSize="small" /></IconButton></Tooltip></TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
         {projects.data?.items.length === 0 && <Empty>No projects yet.</Empty>}
       </Paper>
+      {del && <DeleteDialog title={`Delete ${del.name}?`} description="The project is removed. If it has tasks, you will see how many before anything is deleted. Archiving keeps the history." path={`/projects/${del.id}`} onClose={() => setDel(null)} onDeleted={() => { qc.invalidateQueries({ queryKey: ['projects'] }); qc.invalidateQueries({ queryKey: ['tasks'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }) }} />}
       {dlg && (
         <Dialog open onClose={() => setDlg(null)} fullWidth maxWidth="sm">
           <DialogTitle>{dlg === 'new' ? 'New project' : 'Edit project'}</DialogTitle>

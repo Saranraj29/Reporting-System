@@ -44,6 +44,8 @@ def run_context(db: Session, run: ReportRun, company: Company) -> ReportContext:
         project_id=_uuid(run.params.get("project")), user_id=_uuid(run.params.get("user")), team_id=_uuid(run.params.get("team")),
         client_id=_uuid(tpl["client_id"]) if tpl else None,
         include_people=not client_audience,
+        owner_project_ids=[uuid.UUID(p) for p in run.params["owned"]] if run.params.get("owned") is not None else None,  # an owner's export stays inside their projects
+        include_check_ins=run.params.get("owned") is None,
     )
 
 

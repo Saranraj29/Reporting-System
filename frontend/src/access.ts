@@ -12,7 +12,7 @@ const RULES: [string, (w: Who) => boolean][] = [
   ['/tasks', (w) => w.hasAny('task.view')],
   ['/my-day', (w) => w.hasAny('task.view', 'status.view')],
   ['/check-ins', (w) => w.can('status.view.team') || w.can('status.view.all')],
-  ['/reports', (w) => w.hasAny('report.weekly.view', 'report.monthly.view', 'report.performance.view', 'report.visibility.view')],
+  ['/reports', (w) => w.hasAny('report.weekly.view', 'report.monthly.view', 'report.performance.view', 'report.visibility.view') || !!w.me?.owns_projects],  // an owner gets the reports of their own projects
   ['/ai-reports', (w) => w.can('report.ai.draft') || !!w.me?.owns_projects],
   ['/admin/users', (w) => w.can('user.manage')],
   ['/admin/roles', (w) => w.can('role.manage')],

@@ -168,7 +168,8 @@ export function Layout() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       {me?.prefs.compact_tables && <GlobalStyles styles={{ '.MuiTableCell-root': { paddingTop: '6px', paddingBottom: '6px' } }} />}
-      <AppBar position="fixed" color="inherit" sx={{ width: `calc(100% - ${left + right}px)`, ml: `${left}px`, transition: slide, borderBottom: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
+      {/* a fixed bar is positioned from both edges: with only a width and a left margin it sat at the viewport's right edge, so the docked assistant pushed it off to the right */}
+      <AppBar position="fixed" color="inherit" sx={{ left: `${left}px`, right: `${right}px`, width: 'auto', transition: slide, borderBottom: '1px solid', borderColor: 'divider', boxShadow: 'none' }}>
         <Toolbar>
           <Tooltip title={navOpen ? 'Hide the sidebar' : 'Show the sidebar'}>
             <IconButton edge="start" onClick={toggleNav} sx={{ mr: 1 }} aria-label={navOpen ? 'Hide navigation' : 'Show navigation'} aria-expanded={navOpen}>

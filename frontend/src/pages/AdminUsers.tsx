@@ -1,9 +1,11 @@
 import AddIcon from '@mui/icons-material/Add'
-import { Alert, Autocomplete, Avatar, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import { Alert, Autocomplete, Avatar, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useAuth } from '../auth'
+import DeleteDialog from '../components/DeleteDialog'
 import { ErrorAlert, PageHeader, SearchBox } from '../components/ui'
 import { initials } from '../format'
 import { useSearch } from '../hooks'
@@ -21,6 +23,8 @@ export default function AdminUsers() {
 
 function Users({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient()
+  const { me } = useAuth()
+  const [del, setDel] = useState<UserLite | null>(null)
   const search = useSearch()
   const users = useQuery({ queryKey: ['users', 'admin', search.term], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200, q: search.term }), placeholderData: keepPreviousData })
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get<{ items: Role[] }>('/roles') })
@@ -35,7 +39,7 @@ function Users({ canManage }: { canManage: boolean }) {
       <ErrorAlert error={users.error ?? toggle.error} />
       <Paper sx={{ overflow: 'hidden' }}>
         <Table>
-          <TableHead><TableRow><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Roles</TableCell><TableCell>Status</TableCell><TableCell align="right">Active</TableCell></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Roles</TableCell><TableCell>Status</TableCell><TableCell align="right">Active</TableCell>{canManage && <TableCell align="right" sx={{ width: 56 }}><span style={{ position: 'absolute', left: -9999 }}>Delete</span></TableCell>}</TableRow></TableHead>
           <TableBody>
             {users.data?.items.map((u) => (
               <TableRow key={u.id} hover sx={{ cursor: canManage ? 'pointer' : 'default', opacity: u.is_active ? 1 : 0.55 }} onClick={() => canManage && setDlg(u)}>
@@ -44,11 +48,13 @@ function Users({ canManage }: { canManage: boolean }) {
                 <TableCell><Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>{u.roles.map((r) => <Chip key={r.id} size="small" label={r.name} />)}</Stack></TableCell>
                 <TableCell>{u.email_verified === false ? <Chip size="small" color="warning" label="Unverified" /> : <Chip size="small" color="success" variant="outlined" label="Verified" />}</TableCell>
                 <TableCell align="right" onClick={(e) => e.stopPropagation()}><Switch checked={u.is_active} disabled={!canManage} onChange={() => toggle.mutate(u)} inputProps={{ 'aria-label': `Toggle ${u.name}` }} /></TableCell>
+                {canManage && <TableCell align="right" onClick={(e) => e.stopPropagation()}>{u.id !== me?.id && <Tooltip title="Delete"><IconButton size="small" aria-label={`Delete ${u.name}`} onClick={() => setDel(u)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>}</TableCell>}
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </Paper>
+      {del && <DeleteDialog title={`Delete ${del.name}?`} description="Their account is removed. This only works for people with no work history yet; for everyone else, deactivate the account instead (they cannot sign in, and their history stays)." path={`/users/${del.id}`} onClose={() => setDel(null)} onDeleted={() => qc.invalidateQueries({ queryKey: ['users'] })} />}
       {dlg && <UserDialog mode={dlg} roles={roles.data?.items ?? []} onClose={() => setDlg(null)} />}
     </>
   )

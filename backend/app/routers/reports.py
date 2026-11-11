@@ -26,12 +26,14 @@ from ..reports.base import ReportContext
 from ..reports.render import render_report_html
 from ..security import decode_token, make_file_token, new_share_token
 from ..services import jobs, runs, storage
+from ..services.access import owned_project_ids
 from ..services.dashboard import effective_user_ids
 from ..services.timeutil import company_today
 
 router = APIRouter(tags=["reports"])
 CLIENT_REPORT_KEYS = ("report.template.manage", "report.ai.draft", "report.approve", "report.share.client")
 FORMATS = ("pdf", "xlsx", "docx", "md")
+OWNER_REPORTS = ("weekly", "monthly", "visibility")  # what a project owner may run for their own projects (not the per-person performance report)
 MEDIA = {
     "pdf": "application/pdf",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -49,7 +51,7 @@ def _defn(key: str):
 
 def _check_report_access(ctx: Ctx, key: str):
     d = _defn(key)
-    if ctx.scope_of(d.required_permission) is None:
+    if ctx.scope_of(d.required_permission) is None and not (key in OWNER_REPORTS and owned_project_ids(ctx.db, ctx.me.id)):
         raise forbidden("You do not have access to this report")
     return d
 
@@ -64,8 +66,9 @@ def ordered_reports():
 def list_reports(ctx: Ctx = Depends(get_ctx)):
     today = company_today(ctx.company.timezone)
     items = []
+    owns = bool(owned_project_ids(ctx.db, ctx.me.id))
     for d in ordered_reports():
-        scope = ctx.scope_of(d.required_permission)
+        scope = ctx.scope_of(d.required_permission) or ("my projects" if owns and d.key in OWNER_REPORTS else None)
         if scope:
             start, end = d.default_period(today)
             items.append({"key": d.key, "title": d.title, "scope": scope,
@@ -79,6 +82,12 @@ def _build_context(ctx: Ctx, d, start: date | None, end: date | None, project, u
     start, end = start or d_start, end or d_end
     if end < start or (end - start).days > 400:
         raise bad_request("invalid_range", "Choose a valid date range of at most 400 days")
+    if ctx.scope_of(d.required_permission) is None:  # a project owner without the report permission: their own projects only, whoever worked in them
+        owned = owned_project_ids(ctx.db, ctx.me.id)
+        if project and project not in owned:
+            raise forbidden("You can only run this report for projects you own")
+        return ReportContext(db=ctx.db, start=start, end=end, today=today, scope_user_ids=effective_user_ids(None, user), project_id=project,
+                             team_id=team, owner_project_ids=owned, include_check_ins=False)  # daily-status text is never widened by ownership
     uids = effective_user_ids(ctx.visible(d.required_permission), user)
     return ReportContext(db=ctx.db, start=start, end=end, today=today, scope_user_ids=uids, project_id=project, team_id=team)
 
@@ -114,7 +123,8 @@ def export_report(key: str, body: ExportIn | None = None, format: str = "pdf", c
         company_id=ctx.company_id, report_key=key, period_start=rc.start, period_end=rc.end, requested_by=ctx.me.id,
         export_format=format, status="queued",
         scope_user_ids=None if rc.scope_user_ids is None else [str(u) for u in rc.scope_user_ids],
-        params={"project": str(body.project) if body.project else None, "user": str(body.user) if body.user else None, "team": str(body.team) if body.team else None},
+        params={"project": str(body.project) if body.project else None, "user": str(body.user) if body.user else None, "team": str(body.team) if body.team else None,
+                "owned": None if rc.owner_project_ids is None else [str(p) for p in rc.owner_project_ids]},
     )
     ctx.db.add(run)
     ctx.db.flush()
@@ -176,6 +186,22 @@ def get_run(run_id: uuid.UUID, ctx: Ctx = Depends(get_ctx)):
         raise not_found("Report run")
     _run_access(ctx, run)
     return _run_out(run, detail=True)
+
+
+@router.delete("/report-runs/{run_id}", status_code=204)
+def delete_run(run_id: uuid.UUID, ctx: Ctx = Depends(get_ctx)):
+    """Delete a generated report or export and its files. Same access as opening it; a run that is still being generated waits."""
+    run = ctx.db.get(ReportRun, run_id)
+    if not run:
+        raise not_found("Report run")
+    _run_access(ctx, run)
+    if run.status == "queued" and datetime.now(UTC) - run.created_at < timedelta(minutes=30):
+        raise conflict("run_busy", "This report is still being generated. Delete it when it has finished.")
+    for fmt in FORMATS:
+        if key := getattr(run, f"file_url_{fmt}"):
+            storage.delete(key)
+    ctx.db.delete(run)
+    ctx.db.commit()
 
 
 @router.get("/report-runs/{run_id}/preview")

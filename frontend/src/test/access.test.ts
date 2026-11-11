@@ -30,10 +30,12 @@ describe('which pages a person may open', () => {
     expect(canOpen('/admin/settings', lead)).toBe(false)
   })
 
-  it('owning a project opens AI reports', () => {
+  it('owning a project opens AI reports and the reports of that project', () => {
     expect(canOpen('/ai-reports', who(['task.view.own'], true))).toBe(true)
     expect(canOpen('/ai-reports/5', who(['task.view.own'], true))).toBe(true)
-    expect(canOpen('/reports', who(['task.view.own'], true))).toBe(false)
+    expect(canOpen('/reports', who(['task.view.own'], true))).toBe(true)  // the server limits them to the projects they own
+    expect(canOpen('/reports/runs/3', who(['task.view.own'], true))).toBe(true)
+    expect(canOpen('/reports', who(['task.view.own'], false))).toBe(false)  // a plain member has no reports
   })
 
   it('an admin opens the administration pages their permissions allow', () => {

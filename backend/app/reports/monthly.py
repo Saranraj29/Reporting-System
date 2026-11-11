@@ -22,6 +22,7 @@ def query(rc: ReportContext) -> dict:
           COALESCE((SELECT sum(e.hours) FROM time_entries e JOIN tasks t ON t.id = e.task_id
                     WHERE e.entry_date BETWEEN w.week_start AND w.week_start + 6 AND {TIME_FILTER}
                       AND (CAST(:project AS uuid) IS NULL OR t.project_id = CAST(:project AS uuid))
+                      AND (CAST(:owned AS uuid[]) IS NULL OR t.project_id = ANY(CAST(:owned AS uuid[])))
                       AND (CAST(:client AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE client_id = CAST(:client AS uuid)))), 0) AS hours,
           (SELECT count(*) FROM tasks t WHERE t.completed_at::date BETWEEN w.week_start AND w.week_start + 6 AND {TASK_FILTER}) AS completed
         FROM (SELECT generate_series(date_trunc('week', CAST(:from AS date))::date, :to, interval '7 days')::date AS week_start) w

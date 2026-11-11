@@ -46,7 +46,7 @@ def test_a_member_can_only_assign_themselves(world):
 
 def test_the_task_form_only_offers_what_the_person_may_use(world):
     mine = {p["name"]: p["can_add_tasks"] for p in world.m1.get("/projects").json()["items"]}
-    assert mine == {"Apollo": True, "Hermes": False, "Core site": False}
+    assert mine == {"Apollo": True}  # only the projects that concern her are listed at all
     got = world.m1.get(f"/projects/{world.apollo['id']}/assignable-users").json()
     assert got["can_add_tasks"] is True and [u["name"] for u in got["items"]] == ["Mia Member"]
     assert world.m1.get(f"/projects/{world.hermes['id']}/assignable-users").json()["can_add_tasks"] is False

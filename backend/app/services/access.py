@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import select, union
 from sqlalchemy.orm import Session
 
-from ..models import Project, ProjectMember, RolePermission, Team, TeamMember, UserRole
+from ..models import Project, ProjectMember, RolePermission, Task, TaskAssignee, Team, TeamMember, UserRole
 from ..perms import best_scope
 
 _CACHE: dict[uuid.UUID, tuple[float, frozenset[str]]] = {}
@@ -87,3 +87,30 @@ def task_project_ids(db: Session, user_id: uuid.UUID, scope: str | None) -> set[
         if teams:
             ids |= set(db.execute(select(Project.id).where(Project.team_id.in_(teams))).scalars())
     return ids
+
+
+def visible_project_ids(db: Session, user_id: uuid.UUID, perms: frozenset[str]) -> set[uuid.UUID] | None:
+    """The projects a person has any business seeing in a list or a filter (None = every project): the ones they work on, the ones where
+    someone in their task scope has a task, and for a team scope the projects of their teams. Managers, admins and project managers see all."""
+    if "project.manage" in perms or any(best_scope(perms, base) == "all" for base in ("task.view", "dashboard.view")):
+        return None
+    ids = member_project_ids(db, user_id)
+    scope, people = visible_users(db, user_id, perms, "task.view")
+    if people:
+        ids |= set(db.execute(select(Task.project_id).join(TaskAssignee, TaskAssignee.task_id == Task.id).where(TaskAssignee.user_id.in_(people))).scalars())
+    if scope == "team":
+        teams = my_team_ids(db, user_id)
+        if teams:
+            ids |= set(db.execute(select(Project.id).where(Project.team_id.in_(teams))).scalars())
+    return ids
+
+
+def visible_team_ids(db: Session, user_id: uuid.UUID, perms: frozenset[str]) -> set[uuid.UUID] | None:
+    """The teams a person sees in a list or a filter (None = all): their own teams and the teams of the projects they can see."""
+    project_ids = visible_project_ids(db, user_id, perms)
+    if project_ids is None:
+        return None
+    teams = my_team_ids(db, user_id)
+    if project_ids:
+        teams |= {t for t in db.execute(select(Project.team_id).where(Project.id.in_(project_ids), Project.team_id.is_not(None))).scalars()}
+    return teams

@@ -14,17 +14,19 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import ReplayIcon from '@mui/icons-material/Replay'
 import StopIcon from '@mui/icons-material/Stop'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
+import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import {
-  Alert, Avatar, Box, Button, Checkbox, Divider, Drawer, FormControlLabel, IconButton, LinearProgress, MenuItem, Paper, Select, Stack, Tab, Tabs,
+  Alert, Autocomplete, Avatar, Box, Button, Checkbox, Divider, Drawer, FormControlLabel, IconButton, LinearProgress, MenuItem, Paper, Select, Stack, Tab, Tabs,
   TextField, Tooltip, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
 import { api, errorMessage } from '../api'
+import DeleteDialog from './DeleteDialog'
 import { ago, elapsed, fmtDate, fmtDateTime, hours, initials, today } from '../format'
 import { STATUS_COLORS, STATUS_LABELS } from '../theme'
 import { useNow, useRunningTimer, useTimerActions } from '../timer'
-import type { Comment, Page, Task, TimeEntry } from '../types'
+import type { Comment, Page, Task, TaskField, TimeEntry, UserLite } from '../types'
 import { Markdown } from './Markdown'
 import { PriorityChip, StatusChip } from './ui'
 
@@ -232,7 +234,16 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
   const { start, stop } = useTimerActions()
   const now = useNow()
   const [log, setLog] = useState({ hours: '', note: '' })
+  const [removing, setRemoving] = useState(false)
+  const [oneAssignee, setOneAssignee] = useState(false)  // a task needs at least one person
   const t = task.data
+  // who this person may give the task to: themselves, their team, or (project owner / team lead) the project's members
+  const assignable = useQuery({
+    queryKey: ['assignable-users', t?.project_id],
+    queryFn: () => api.get<{ can_add_tasks: boolean; items: UserLite[] }>(`/projects/${t!.project_id}/assignable-users`),
+    enabled: !!t?.can_edit,
+  })
+  const fields = useQuery({ queryKey: ['task-fields'], queryFn: () => api.get<{ items: TaskField[] }>('/task-fields'), enabled: !!t?.can_edit })
   const runningHere = !!running && running.task_id === id
 
   const refresh = () => {
@@ -243,6 +254,7 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
     qc.invalidateQueries({ queryKey: ['dashboard'] })
   }
   const patch = useMutation({ mutationFn: (body: Record<string, unknown>) => api.patch(`/tasks/${id}`, body), onSuccess: refresh })
+  const reassign = useMutation({ mutationFn: (userIds: string[]) => api.put(`/tasks/${id}/assignees`, { user_ids: userIds }), onSuccess: refresh })
   const logTime = useMutation({
     mutationFn: () => api.post('/time-entries', { task_id: id, hours: Number(log.hours), entry_date: today(), note: log.note }),
     onSuccess: () => { setLog({ hours: '', note: '' }); refresh() },
@@ -296,7 +308,21 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
 
                 <Box>
                   <SideLabel>Assignees</SideLabel>
-                  <Stack spacing={0.75}>{t.assignees.map((a) => <Person key={a.id} name={a.name} />)}</Stack>
+                  {t.can_edit && assignable.data ? (
+                    <>
+                      <Autocomplete
+                        multiple size="small" disableClearable options={[...assignable.data.items, ...t.assignees.filter((a) => !assignable.data!.items.some((u) => u.id === a.id)).map((a) => ({ id: a.id, name: a.name, email: '' }))]}
+                        value={t.assignees.map((a) => ({ id: a.id, name: a.name, email: '' }))} disabled={reassign.isPending}
+                        getOptionLabel={(u) => u.name} isOptionEqualToValue={(a, b) => a.id === b.id}
+                        onChange={(_, v) => { if (v.length === 0) { setOneAssignee(true); return } setOneAssignee(false); reassign.mutate(v.map((u) => u.id)) }}
+                        renderInput={(p) => <TextField {...p} placeholder="Add people" inputProps={{ ...p.inputProps, 'aria-label': 'Assignees' }} />}
+                      />
+                      <Typography variant="caption" color={oneAssignee ? 'error' : 'text.secondary'} sx={{ display: 'block', mt: 0.5 }}>
+                        {oneAssignee ? 'A task needs at least one person.' : assignable.data.items.length > 1 ? 'You can add or remove people.' : 'You can assign tasks to yourself.'}
+                      </Typography>
+                      {reassign.error && <Alert severity="error" sx={{ mt: 1 }}>{errorMessage(reassign.error)}</Alert>}
+                    </>
+                  ) : <Stack spacing={0.75}>{t.assignees.map((a) => <Person key={a.id} name={a.name} />)}</Stack>}
                 </Box>
 
                 <Box>
@@ -306,6 +332,15 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                       {PRIORITIES.map((p) => <MenuItem key={p} value={p} sx={{ textTransform: 'capitalize' }}>{p}</MenuItem>)}
                     </Select>
                   ) : <PriorityChip priority={t.priority} />}
+                </Box>
+
+                <Box>
+                  <SideLabel>Activity type</SideLabel>
+                  {t.can_edit ? (
+                    <Select fullWidth size="small" value={t.activity_type} disabled={patch.isPending} onChange={(e) => patch.mutate({ activity_type: e.target.value })} sx={select} inputProps={{ 'aria-label': 'Activity type' }}>
+                      {[...new Set([t.activity_type, ...(fields.data?.items.find((f) => f.key === 'activity_type')?.options ?? [])])].map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
+                    </Select>
+                  ) : <Typography variant="body2">{t.activity_type}</Typography>}
                 </Box>
 
                 <Box>
@@ -367,16 +402,26 @@ export function TaskPanel({ id, onClose, onEdit, canLog }: { id: string | null; 
                 <Box>
                   <SideLabel>Details</SideLabel>
                   <Stack spacing={0.75}>
-                    {[['Project', t.project_name], ['Team', t.team_name ?? '—'], ['Activity', t.activity_type], ['Start date', fmtDate(t.start_date)],
+                    {[['Project', t.project_name], ['Team', t.team_name ?? '—'], ['Start date', fmtDate(t.start_date)],
                       ...Object.entries(t.custom_fields).map(([k, v]) => [k.replace(/_/g, ' '), String(v)])].map(([k, v]) => (
                       <Stack key={k} direction="row" justifyContent="space-between"><Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>{k}</Typography><Typography variant="caption" sx={{ fontWeight: 600 }}>{v}</Typography></Stack>
                     ))}
                   </Stack>
                 </Box>
+
+                {t.can_edit && (
+                  <Box>
+                    <Button color="error" startIcon={<DeleteIcon fontSize="small" />} onClick={() => setRemoving(true)}>Delete task</Button>
+                  </Box>
+                )}
               </Stack>
             </Box>
           </Box>
         </Box>
+      )}
+      {removing && t && (
+        <DeleteDialog title="Delete this task?" description={`“${t.title}” is removed with its comments and logged time (${hours(t.actual_hours)}). This cannot be undone.`} path={`/tasks/${t.id}`}
+          onClose={() => setRemoving(false)} onDeleted={() => { qc.invalidateQueries({ queryKey: ['tasks'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['entries'] }); onClose() }} />
       )}
     </Drawer>
   )

@@ -17,15 +17,18 @@ from ..models import (
     NotificationLog,
     Project,
     ProjectMember,
+    ReportTemplate,
     Role,
+    Task,
     TaskFieldDefinition,
     Team,
     TeamMember,
+    TimeEntry,
     User,
 )
 from ..security import decrypt, encrypt
 from ..services import reminders
-from ..services.access import task_project_ids
+from ..services.access import task_project_ids, visible_project_ids
 from ..services.timeutil import valid_timezone
 from .auth import PUBLIC_DOMAINS
 
@@ -101,6 +104,9 @@ def list_projects(
 ):
     stmt = (select(Project, Client.name, Team.name).outerjoin(Client, Client.id == Project.client_id)
             .outerjoin(Team, Team.id == Project.team_id).order_by(Project.name))
+    visible = visible_project_ids(ctx.db, ctx.me.id, ctx.perms)  # people see the projects that concern them, not every project of the company
+    if visible is not None:
+        stmt = stmt.where(Project.id.in_(visible))
     if status:
         stmt = stmt.where(Project.status == status)
     if client_id:
@@ -153,6 +159,22 @@ def patch_project(project_id: uuid.UUID, body: ProjectPatch, ctx: Ctx = Depends(
         _join_team(ctx, p.team_id, [u for ids in _members(ctx, [p.id]).values() for u in map(uuid.UUID, ids)])
     ctx.db.commit()
     return _project_out(p, members=_members(ctx, [p.id]).get(p.id), owners=_members(ctx, [p.id], owners_only=True).get(p.id), team_name=_team_name(ctx, p.team_id))
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: uuid.UUID, force: bool = False, ctx: Ctx = Depends(require("project.manage"))):
+    """Delete a project with everything in it (tasks, comments, time entries). A project that has tasks needs the person to confirm (force);
+    archiving keeps the history and is the gentler choice."""
+    project = ctx.db.get(Project, project_id)
+    if not project:
+        raise not_found("Project")
+    n = ctx.db.execute(select(func.count()).select_from(Task).where(Task.project_id == project.id)).scalar_one()
+    hours = ctx.db.execute(select(func.coalesce(func.sum(TimeEntry.hours), 0)).join(Task, Task.id == TimeEntry.task_id).where(Task.project_id == project.id)).scalar_one()
+    if n and not force:
+        raise ApiError(409, "in_use", f"{project.name} has {n} task{'s' if n != 1 else ''} and {float(hours):g} h logged. Deleting removes them permanently; "
+                       "archiving the project keeps them.", {"tasks": n, "hours": float(hours)})
+    ctx.db.delete(project)
+    ctx.db.commit()
 
 
 class ProjectMembersIn(BaseModel):
@@ -269,6 +291,22 @@ def add_contact(client_id: uuid.UUID, body: ContactIn, ctx: Ctx = Depends(requir
     ctx.db.add(c)
     ctx.db.commit()
     return _contact_out(c)
+
+
+@router.delete("/clients/{client_id}", status_code=204)
+def delete_client(client_id: uuid.UUID, force: bool = False, ctx: Ctx = Depends(require("project.manage"))):
+    """Delete a client and its contacts. Its projects are kept (without a client); its report templates are deleted. With either, the person must confirm (force)."""
+    client = ctx.db.get(Client, client_id)
+    if not client:
+        raise not_found("Client")
+    projects = ctx.db.execute(select(func.count()).select_from(Project).where(Project.client_id == client.id)).scalar_one()
+    templates = ctx.db.execute(select(func.count()).select_from(ReportTemplate).where(ReportTemplate.client_id == client.id)).scalar_one()
+    if (projects or templates) and not force:
+        raise ApiError(409, "in_use", f"{client.name} has {projects} project{'s' if projects != 1 else ''} (kept, without a client) and "
+                       f"{templates} report template{'s' if templates != 1 else ''} (deleted).", {"projects": projects, "templates": templates})
+    ctx.db.execute(delete(ReportTemplate).where(ReportTemplate.client_id == client.id))
+    ctx.db.delete(client)
+    ctx.db.commit()
 
 
 @router.delete("/clients/{client_id}/contacts/{contact_id}", status_code=204)

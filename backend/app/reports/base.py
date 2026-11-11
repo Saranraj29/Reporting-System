@@ -21,6 +21,8 @@ class ReportContext:
     client_id: uuid.UUID | None = None
     team_id: uuid.UUID | None = None  # only the projects of this team
     include_people: bool = True  # False for client-facing reports: no names, no individual figures
+    owner_project_ids: list[uuid.UUID] | None = None  # a project owner's report: only these projects (and everyone's work in them)
+    include_check_ins: bool = True  # False for an owner's report: daily-status text is never widened by owning a project
 
     @property
     def uids(self) -> list[uuid.UUID] | None:
@@ -34,7 +36,7 @@ class ReportContext:
     def params(self) -> dict:
         return {
             "uids": self.uids, "project": self.project_id, "client": self.client_id, "team": self.team_id,
-            "from": self.start, "to": self.end, "today": self.today,
+            "from": self.start, "to": self.end, "today": self.today, "owned": self.owner_project_ids,
         }
 
 
