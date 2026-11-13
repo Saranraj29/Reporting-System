@@ -142,3 +142,26 @@ def test_a_one_minute_timer_is_kept_as_one_minute(work, owner_conn):
     manual = work.m1.post("/time-entries", {"task_id": task["id"], "hours": 0.0833, "entry_date": (work.today - dt.timedelta(days=3)).isoformat()}).json()
     assert manual["hours"] == 0.0833  # 5 minutes
     assert work.m1.get(f"/tasks/{task['id']}").json()["actual_hours"] == pytest.approx(0.0167 + 0.0833, abs=1e-4)
+
+
+# ------------------------------------------------------------------ old time can be written down, and the log can be filtered
+def test_earlier_days_can_be_logged_on_a_finished_task(work):
+    done = work.tasks["t1"]  # finished today
+    yesterday = (work.today - dt.timedelta(days=1)).isoformat()
+    assert work.m1.post("/time-entries", {"task_id": done["id"], "hours": 2, "entry_date": yesterday}).status_code == 201
+    r = work.m1.post("/time-entries", {"task_id": done["id"], "hours": 1, "entry_date": work.today.isoformat()})
+    assert r.status_code == 409 and r.json()["code"] == "task_done"  # today is still closed
+    assert work.m1.post("/time-entries/start", {"task_id": done["id"]}).json()["code"] == "task_done"  # and so is the timer
+
+
+def test_time_entries_filter_by_project_dates_and_text_with_totals(work):
+    api = work.m1
+    all_ = api.get("/time-entries", params={"limit": 200}).json()
+    assert all_["total"] == len(all_["items"]) and all_["total_hours"] == round(sum(e["hours"] for e in all_["items"]), 4)
+    hermes = api.get("/time-entries", params={"project": work.hermes["id"]}).json()
+    assert 0 < hermes["total"] < all_["total"] and {e["task_title"] for e in hermes["items"]} == {"Fix pipeline"} and hermes["total_hours"] == 1
+    assert api.get("/time-entries", params={"from": (work.today + dt.timedelta(days=1)).isoformat()}).json()["total"] == 0
+    one = api.get("/time-entries", params={"q": all_["items"][0]["task_title"][:4]}).json()
+    assert one["total"] >= 1 and all(all_["items"][0]["task_title"][:4].lower() in (e["task_title"] + (e["note"] or "")).lower() for e in one["items"])
+    page = api.get("/time-entries", params={"limit": 1, "page": 2}).json()
+    assert len(page["items"]) == 1 and page["total"] == all_["total"] and page["total_hours"] == all_["total_hours"]  # totals cover the whole filter

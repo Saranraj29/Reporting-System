@@ -5,13 +5,13 @@ import type { Project, Team, UserLite } from '../types'
 const user = (id: string): UserLite => ({ id, name: id, email: `${id}@x.com` } as UserLite)
 const team = (id: string, members: string[], lead: string | null = null): Team =>
   ({ id, name: id, description: '', lead_user_id: lead, member_ids: members, project_count: 0, open_tasks: 0, total_tasks: 0 })
-const project = (id: string, team_id: string | null, members: string[], owners: string[] = []): Project =>
-  ({ id, name: id, team_id, team_name: null, member_ids: members, owner_ids: owners } as unknown as Project)
+const project = (id: string, teams: string[], members: string[], owners: string[] = []): Project =>
+  ({ id, name: id, team_ids: teams, team_name: null, member_ids: members, owner_ids: owners } as unknown as Project)
 
 // Data team: ann (lead), bob.   Web team: cy.   Apollo (Data): ann, bob + owner dee.   Hermes (Web): cy.   Orphan: no team, bob.
 const d = {
   teams: [team('data', ['bob'], 'ann'), team('web', ['cy'])],
-  projects: [project('apollo', 'data', ['ann', 'bob'], ['dee']), project('hermes', 'web', ['cy']), project('orphan', null, ['bob'])],
+  projects: [project('apollo', ['data'], ['ann', 'bob'], ['dee']), project('hermes', ['web'], ['cy']), project('orphan', [], ['bob'])],
   users: ['ann', 'bob', 'cy', 'dee', 'eve'].map(user),
 }
 const ids = (xs: { id: string }[]) => xs.map((x) => x.id)
@@ -47,6 +47,13 @@ describe('linked Team / Project / Person filters', () => {
     expect(change({ team: 'data', project: '', user: 'bob' }, 'project', 'apollo', d)).toEqual({ team: 'data', project: 'apollo', user: 'bob' })  // bob is on Apollo: stays
     expect(change({ team: 'data', project: 'apollo', user: 'ann' }, 'user', 'cy', d)).toEqual({ team: '', project: '', user: 'cy' })
     expect(change({ team: 'data', project: 'apollo', user: 'bob' }, 'team', '', d)).toEqual({ team: '', project: 'apollo', user: 'bob' })  // "All teams" keeps the rest
+  })
+
+  it('a project with several teams is offered under each of them', () => {
+    const shared = { ...d, projects: [...d.projects, project('portal', ['data', 'web'], ['cy'])] }
+    expect(ids(projectOptions(shared, { ...NONE, team: 'data' }))).toEqual(['apollo', 'portal'])
+    expect(ids(projectOptions(shared, { ...NONE, team: 'web' }))).toEqual(['hermes', 'portal'])
+    expect(ids(teamOptions(shared, { ...NONE, project: 'portal' }))).toEqual(['data', 'web'])
   })
 
   it('a selected project keeps its team selectable even when the person is not a team member', () => {

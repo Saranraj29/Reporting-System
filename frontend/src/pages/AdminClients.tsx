@@ -1,9 +1,9 @@
-import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import { Button, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../api'
+import { useFab } from '../fab'
 import DeleteDialog from '../components/DeleteDialog'
 import { Empty, ErrorAlert, PageHeader, SearchBox, clickable } from '../components/ui'
 import { useSearch } from '../hooks'
@@ -26,6 +26,7 @@ function Clients() {
   const [del, setDel] = useState<Client | null>(null)
   const [f, setF] = useState({ name: '', contact_name: '', contact_email: '' })
   const [creating, setCreating] = useState(false)
+  useFab(creating ? null : 'New client', () => setCreating(true))
   const contacts = useQuery({ queryKey: ['contacts', sel?.id], queryFn: () => api.get<{ items: Contact[] }>(`/clients/${sel!.id}/contacts`), enabled: !!sel })
   const [c, setC] = useState({ name: '', email: '' })
   const create = useMutation({ mutationFn: () => api.post('/clients', { name: f.name, contact_name: f.contact_name || null, contact_email: f.contact_email || null }), onSuccess: () => { setCreating(false); setF({ name: '', contact_name: '', contact_email: '' }); qc.invalidateQueries({ queryKey: ['clients'] }) } })
@@ -56,7 +57,7 @@ function Clients() {
               <TextField size="small" label="Contact email" value={f.contact_email} onChange={(e) => setF({ ...f, contact_email: e.target.value })} />
               <Button variant="contained" disabled={!f.name} onClick={() => create.mutate()}>Add</Button>
             </>
-          ) : <Button startIcon={<AddIcon />} onClick={() => setCreating(true)}>New client</Button>}
+          ) : null}
         </Stack>
         <ErrorAlert error={create.error} />
       </Paper>

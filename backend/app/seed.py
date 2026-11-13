@@ -14,6 +14,7 @@ from .models import (
     DailyStatus,
     Project,
     ProjectMember,
+    ProjectTeam,
     ReportTemplate,
     Task,
     TaskAssignee,
@@ -101,12 +102,14 @@ def run() -> None:
     db.add_all(ClientContact(company_id=cid, client_id=c.id, name=c.contact_name, email=c.contact_email) for c in clients.values())
     today = company_today(company.timezone)
     projects = {
-        "Website Revamp": Project(company_id=cid, name="Website Revamp", client_id=clients["Contoso Retail"].id, team_id=team_rows["Web Squad"].id, start_date=today - timedelta(days=60), end_date=today + timedelta(days=40)),
-        "Mobile App": Project(company_id=cid, name="Mobile App", client_id=clients["Fabrikam"].id, team_id=team_rows["Mobile Squad"].id, start_date=today - timedelta(days=45), end_date=today + timedelta(days=75)),
-        "Internal Tools": Project(company_id=cid, name="Internal Tools", team_id=team_rows["Web Squad"].id, start_date=today - timedelta(days=90)),
+        "Website Revamp": Project(company_id=cid, name="Website Revamp", client_id=clients["Contoso Retail"].id, start_date=today - timedelta(days=60), end_date=today + timedelta(days=40)),
+        "Mobile App": Project(company_id=cid, name="Mobile App", client_id=clients["Fabrikam"].id, start_date=today - timedelta(days=45), end_date=today + timedelta(days=75)),
+        "Internal Tools": Project(company_id=cid, name="Internal Tools", start_date=today - timedelta(days=90)),
     }
     db.add_all(projects.values())
     db.flush()
+    for pname, tnames in {"Website Revamp": ["Web Squad"], "Mobile App": ["Mobile Squad"], "Internal Tools": ["Web Squad"]}.items():
+        db.add_all(ProjectTeam(company_id=cid, project_id=projects[pname].id, team_id=team_rows[t].id) for t in tnames)
     owners = {"Website Revamp": {"karthik"}, "Mobile App": {"sanjay"}, "Internal Tools": {"karthik", "sanjay"}}  # project owners see every task in the project
     for pname, members in {"Website Revamp": ["karthik", "divya", "arjun", "meera"], "Mobile App": ["sanjay", "nisha"], "Internal Tools": ["karthik", "arjun", "sanjay"]}.items():
         db.add_all(ProjectMember(company_id=cid, project_id=projects[pname].id, user_id=users[m].id, is_owner=m in owners[pname]) for m in members)

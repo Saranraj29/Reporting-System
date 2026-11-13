@@ -53,7 +53,7 @@ describe('delete confirmation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
     expect(await screen.findByText(/Deactivate the account instead/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(2)  // the cross in the title and the Close button
     expect(onDeleted).not.toHaveBeenCalled()
   })
 

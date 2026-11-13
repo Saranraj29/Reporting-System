@@ -1,7 +1,7 @@
 import type { Project, Team, UserLite } from './types'
 
 /** The Team / Project / Person filters narrow each other (both ways), so a choice never leads to an impossible combination.
- *  - a team's projects are the projects that belong to it; its people are its members and its lead
+ *  - a team's projects are the projects it is one of the teams of; its people are its members and its lead
  *  - a project's people are its members and owners
  *  Pure functions: the options of one dropdown given the selection in the other two. */
 export interface Sel {
@@ -21,19 +21,19 @@ const teamPeople = (t: Team) => new Set([...t.member_ids, ...(t.lead_user_id ? [
 const projectPeople = (p: Project) => new Set([...p.member_ids, ...p.owner_ids])
 
 export function projectOptions(d: Data, s: Sel): Project[] {
-  return d.projects.filter((p) => (!s.team || p.team_id === s.team) && (!s.user || projectPeople(p).has(s.user)))
+  return d.projects.filter((p) => (!s.team || p.team_ids.includes(s.team)) && (!s.user || projectPeople(p).has(s.user)))
 }
 
 export function teamOptions(d: Data, s: Sel): Team[] {
   const project = s.project ? d.projects.find((p) => p.id === s.project) : undefined
-  return d.teams.filter((t) => (!s.project || t.id === project?.team_id) && (!s.user || !!s.project || teamPeople(t).has(s.user)))
+  return d.teams.filter((t) => (!s.project || !!project?.team_ids.includes(t.id)) && (!s.user || !!s.project || teamPeople(t).has(s.user)))
 }
 
 export function personOptions(d: Data, s: Sel): UserLite[] {
   const users = d.users ?? []
   const project = s.project ? d.projects.find((p) => p.id === s.project) : undefined
   const team = s.team ? d.teams.find((t) => t.id === s.team) : undefined
-  if (project) return users.filter((u) => projectPeople(project).has(u.id))  // a project belongs to one team, so this is "that team and that project"
+  if (project) return users.filter((u) => projectPeople(project).has(u.id))  // the project's people (a project can have several teams, so the team does not narrow it further)
   if (team) return users.filter((u) => teamPeople(team).has(u.id))
   return users
 }

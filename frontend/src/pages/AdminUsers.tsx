@@ -1,12 +1,12 @@
-import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
-import { Alert, Autocomplete, Avatar, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
+import { Alert, Autocomplete, Avatar, Button, Chip, Dialog, DialogActions, DialogContent, IconButton, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useAuth } from '../auth'
+import { useFab } from '../fab'
 import DeleteDialog from '../components/DeleteDialog'
-import { ErrorAlert, PageHeader, SearchBox, clickable } from '../components/ui'
+import { ErrorAlert, ModalTitle, PageHeader, SearchBox, clickable, keepOpen } from '../components/ui'
 import { initials } from '../format'
 import { useSearch } from '../hooks'
 import type { Page, Role, UserLite } from '../types'
@@ -29,12 +29,13 @@ function Users({ canManage }: { canManage: boolean }) {
   const users = useQuery({ queryKey: ['users', 'admin', search.term], queryFn: () => api.get<Page<UserLite>>('/users', { limit: 200, q: search.term }), placeholderData: keepPreviousData })
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get<{ items: Role[] }>('/roles') })
   const [dlg, setDlg] = useState<'create' | 'invite' | UserLite | null>(null)
+  useFab(canManage ? 'Add user' : null, () => setDlg('create'))
   const toggle = useMutation({ mutationFn: (u: UserLite) => api.patch(`/users/${u.id}`, { is_active: !u.is_active }), onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }) })
   return (
     <>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2 }} justifyContent="space-between">
         <SearchBox value={search.input} onChange={search.setInput} placeholder="Search users by name or email" />
-        {canManage && <Stack direction="row" spacing={1}><Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg('create')}>Add user</Button><Button variant="outlined" onClick={() => setDlg('invite')}>Invite by email</Button></Stack>}
+        {canManage && <Button variant="outlined" onClick={() => setDlg('invite')}>Invite by email</Button>}
       </Stack>
       <ErrorAlert error={users.error ?? toggle.error} />
       <Paper sx={{ overflow: 'hidden' }}>
@@ -83,8 +84,8 @@ function UserDialog({ mode, roles, onClose }: { mode: 'create' | 'invite' | User
     },
   })
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{existing ? `Edit ${existing.name}` : mode === 'invite' ? 'Invite by email' : 'Add user'}</DialogTitle>
+    <Dialog open onClose={keepOpen(onClose)} fullWidth maxWidth="sm">
+      <ModalTitle onClose={onClose}>{existing ? `Edit ${existing.name}` : mode === 'invite' ? 'Invite by email' : 'Add user'}</ModalTitle>
       <DialogContent dividers>
         <Stack spacing={2} sx={{ pt: 0.5 }}>
           {mode !== 'invite' && <TextField label="Full name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />}

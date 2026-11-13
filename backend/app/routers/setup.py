@@ -17,6 +17,7 @@ from ..models import (
     NotificationLog,
     Project,
     ProjectMember,
+    ProjectTeam,
     ReportTemplate,
     Role,
     Task,
@@ -40,7 +41,7 @@ router = APIRouter(tags=["setup"])
 class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     client_id: uuid.UUID | None = None
-    team_id: uuid.UUID | None = None
+    team_ids: list[uuid.UUID] = []  # a project can have several teams
     status: str = Field(default="active", pattern="^(active|on_hold|completed|archived)$")
     start_date: date | None = None
     end_date: date | None = None
@@ -49,17 +50,19 @@ class ProjectIn(BaseModel):
 class ProjectPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     client_id: uuid.UUID | None = None
-    team_id: uuid.UUID | None = None
+    team_ids: list[uuid.UUID] | None = None
     status: str | None = Field(default=None, pattern="^(active|on_hold|completed|archived)$")
     start_date: date | None = None
     end_date: date | None = None
 
 
 def _project_out(p: Project, client_name: str | None = None, members: list[str] | None = None, owners: list[str] | None = None,
-                 team_name: str | None = None) -> dict:
+                 teams: list[tuple[uuid.UUID, str]] | None = None) -> dict:
+    teams = teams or []
     return {
         "id": str(p.id), "name": p.name, "client_id": str(p.client_id) if p.client_id else None,
-        "client_name": client_name, "status": p.status, "team_id": str(p.team_id) if p.team_id else None, "team_name": team_name,
+        "client_name": client_name, "status": p.status, "team_ids": [str(i) for i, _ in teams],
+        "team_name": ", ".join(n for _, n in teams) or None,
         "start_date": p.start_date.isoformat() if p.start_date else None,
         "end_date": p.end_date.isoformat() if p.end_date else None,
         "member_ids": members or [], "owner_ids": owners or [],
@@ -81,30 +84,48 @@ def _check_client(ctx: Ctx, client_id: uuid.UUID | None) -> None:
         raise bad_request("invalid_client", "Client does not exist")
 
 
-def _check_team(ctx: Ctx, team_id: uuid.UUID | None) -> None:
-    if team_id and not ctx.db.get(Team, team_id):
+def _check_teams(ctx: Ctx, team_ids: list[uuid.UUID]) -> list[uuid.UUID]:
+    unique = list(dict.fromkeys(team_ids))
+    if unique and ctx.db.execute(select(func.count()).select_from(Team).where(Team.id.in_(unique))).scalar_one() != len(unique):
         raise bad_request("invalid_team", "Team does not exist")
+    return unique
 
 
-def _join_team(ctx: Ctx, team_id: uuid.UUID | None, user_ids) -> None:
-    """People who work on a project belong to the project's team: add the ones who are not members of it yet (nobody is ever removed)."""
-    if not team_id or not user_ids:
+def _project_team_ids(ctx: Ctx, project_id: uuid.UUID) -> list[uuid.UUID]:
+    return list(ctx.db.execute(select(ProjectTeam.team_id).where(ProjectTeam.project_id == project_id)).scalars())
+
+
+def _set_project_teams(ctx: Ctx, project_id: uuid.UUID, team_ids: list[uuid.UUID]) -> None:
+    ctx.db.execute(delete(ProjectTeam).where(ProjectTeam.project_id == project_id))
+    ctx.db.add_all(ProjectTeam(company_id=ctx.company_id, project_id=project_id, team_id=t) for t in team_ids)
+
+
+def _join_teams(ctx: Ctx, team_ids: list[uuid.UUID], user_ids) -> None:
+    """People who work on a project belong to the project's teams: add the ones who are not members of a team yet (nobody is ever removed)."""
+    if not team_ids or not user_ids:
         return
-    already = set(ctx.db.execute(select(TeamMember.user_id).where(TeamMember.team_id == team_id, TeamMember.user_id.in_(user_ids))).scalars())
-    ctx.db.add_all(TeamMember(company_id=ctx.company_id, team_id=team_id, user_id=u) for u in set(user_ids) - already)
+    for team_id in team_ids:
+        already = set(ctx.db.execute(select(TeamMember.user_id).where(TeamMember.team_id == team_id, TeamMember.user_id.in_(user_ids))).scalars())
+        ctx.db.add_all(TeamMember(company_id=ctx.company_id, team_id=team_id, user_id=u) for u in set(user_ids) - already)
 
 
-def _team_name(ctx: Ctx, team_id: uuid.UUID | None) -> str | None:
-    return ctx.db.execute(select(Team.name).where(Team.id == team_id)).scalar_one_or_none() if team_id else None
+def _teams_of(ctx: Ctx, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[tuple[uuid.UUID, str]]]:
+    out: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
+    for pid, tid, name in ctx.db.execute(
+        select(ProjectTeam.project_id, Team.id, Team.name).join(Team, Team.id == ProjectTeam.team_id)
+        .where(ProjectTeam.project_id.in_(project_ids)).order_by(Team.name)
+    ):
+        out.setdefault(pid, []).append((tid, name))
+    return out
 
 
 @router.get("/projects")
 def list_projects(
     status: str | None = None, client_id: uuid.UUID | None = None, team: uuid.UUID | None = None, q: str | None = None,
+    internal: bool | None = None,  # true = projects without a client ("Internal"), false = projects that have one
     ctx: Ctx = Depends(get_ctx), page: Page = Depends(pagination),
 ):
-    stmt = (select(Project, Client.name, Team.name).outerjoin(Client, Client.id == Project.client_id)
-            .outerjoin(Team, Team.id == Project.team_id).order_by(Project.name))
+    stmt = select(Project, Client.name).outerjoin(Client, Client.id == Project.client_id).order_by(Project.name)
     visible = visible_project_ids(ctx.db, ctx.me.id, ctx.perms)  # people see the projects that concern them, not every project of the company
     if visible is not None:
         stmt = stmt.where(Project.id.in_(visible))
@@ -112,19 +133,22 @@ def list_projects(
         stmt = stmt.where(Project.status == status)
     if client_id:
         stmt = stmt.where(Project.client_id == client_id)
+    if internal is not None:
+        stmt = stmt.where(Project.client_id.is_(None) if internal else Project.client_id.is_not(None))
     if team:
-        stmt = stmt.where(Project.team_id == team)
+        stmt = stmt.where(Project.id.in_(select(ProjectTeam.project_id).where(ProjectTeam.team_id == team)))
     if q:
-        stmt = stmt.where(Project.name.ilike(f"%{q}%") | Client.name.ilike(f"%{q}%") | Team.name.ilike(f"%{q}%"))
+        by_team = select(ProjectTeam.project_id).join(Team, Team.id == ProjectTeam.team_id).where(Team.name.ilike(f"%{q}%"))
+        stmt = stmt.where(Project.name.ilike(f"%{q}%") | Client.name.ilike(f"%{q}%") | Project.id.in_(by_team))
     total = ctx.db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar_one()
     rows = ctx.db.execute(stmt.limit(page.limit).offset(page.offset)).all()
-    ids = [p.id for p, _, _ in rows]
-    members, owners = _members(ctx, ids), _members(ctx, ids, owners_only=True)
+    ids = [p.id for p, _ in rows]
+    members, owners, teams = _members(ctx, ids), _members(ctx, ids, owners_only=True), _teams_of(ctx, ids)
     scope = ctx.scope_of("task.edit")
     addable = task_project_ids(ctx.db, ctx.me.id, scope) if scope else set()  # None = every project
     return {
-        "items": [{**_project_out(p, cn, members.get(p.id), owners.get(p.id), tn), "can_add_tasks": addable is None or p.id in addable}
-                  for p, cn, tn in rows],
+        "items": [{**_project_out(p, cn, members.get(p.id), owners.get(p.id), teams.get(p.id)), "can_add_tasks": addable is None or p.id in addable}
+                  for p, cn in rows],
         "total": total, "page": page.page, "limit": page.limit,
     }
 
@@ -132,13 +156,15 @@ def list_projects(
 @router.post("/projects", status_code=201)
 def create_project(body: ProjectIn, ctx: Ctx = Depends(require("project.manage"))):
     _check_client(ctx, body.client_id)
-    _check_team(ctx, body.team_id)
+    team_ids = _check_teams(ctx, body.team_ids)
     if ctx.db.execute(select(Project.id).where(func.lower(Project.name) == body.name.lower())).first():
         raise conflict("project_exists", "A project with this name already exists")
-    p = Project(company_id=ctx.company_id, **body.model_dump())
+    p = Project(company_id=ctx.company_id, **body.model_dump(exclude={"team_ids"}))
     ctx.db.add(p)
+    ctx.db.flush()
+    _set_project_teams(ctx, p.id, team_ids)
     ctx.db.commit()
-    return _project_out(p, team_name=_team_name(ctx, p.team_id))
+    return _project_out(p, teams=_teams_of(ctx, [p.id]).get(p.id))
 
 
 @router.patch("/projects/{project_id}")
@@ -149,17 +175,20 @@ def patch_project(project_id: uuid.UUID, body: ProjectPatch, ctx: Ctx = Depends(
     data = body.model_dump(exclude_unset=True)
     if data.get("client_id"):
         _check_client(ctx, data["client_id"])
-    if data.get("team_id"):
-        _check_team(ctx, data["team_id"])
-    team_changed = data.get("team_id") and data["team_id"] != p.team_id
+    team_ids = data.pop("team_ids", None)
+    new_teams = _check_teams(ctx, team_ids) if team_ids is not None else None
     for k, v in data.items():
         if k in ("name", "status") and v is None:
             continue
         setattr(p, k, v)
-    if team_changed:  # a project moved to a team brings its current members along
-        _join_team(ctx, p.team_id, [u for ids in _members(ctx, [p.id]).values() for u in map(uuid.UUID, ids)])
+    if new_teams is not None:
+        before = set(_project_team_ids(ctx, p.id))
+        _set_project_teams(ctx, p.id, new_teams)
+        added = [t for t in new_teams if t not in before]
+        if added:  # a project that gets a team brings its current members along
+            _join_teams(ctx, added, [u for ids in _members(ctx, [p.id]).values() for u in map(uuid.UUID, ids)])
     ctx.db.commit()
-    return _project_out(p, members=_members(ctx, [p.id]).get(p.id), owners=_members(ctx, [p.id], owners_only=True).get(p.id), team_name=_team_name(ctx, p.team_id))
+    return _project_out(p, members=_members(ctx, [p.id]).get(p.id), owners=_members(ctx, [p.id], owners_only=True).get(p.id), teams=_teams_of(ctx, [p.id]).get(p.id))
 
 
 @router.delete("/projects/{project_id}", status_code=204)
@@ -206,7 +235,7 @@ def set_project_members(project_id: uuid.UUID, body: ProjectMembersIn, ctx: Ctx 
         raise bad_request("invalid_user", "One or more users do not exist")
     ctx.db.execute(delete(ProjectMember).where(ProjectMember.project_id == project_id))
     ctx.db.add_all(ProjectMember(company_id=ctx.company_id, project_id=project_id, user_id=u, is_owner=u in owners) for u in ids)
-    _join_team(ctx, project.team_id, ids)  # added to the project = added to its team
+    _join_teams(ctx, _project_team_ids(ctx, project_id), ids)  # added to the project = added to its teams
     ctx.db.commit()
     return {"user_ids": [str(u) for u in ids], "owner_ids": [str(u) for u in owners]}
 
@@ -232,8 +261,11 @@ CLIENT_READ = require_any("project.manage", "report.template.manage", "report.sh
 
 
 @router.get("/clients")
-def list_clients(q: str | None = None, ctx: Ctx = Depends(CLIENT_READ), page: Page = Depends(pagination)):
+def list_clients(q: str | None = None, has_projects: bool | None = None, ctx: Ctx = Depends(CLIENT_READ), page: Page = Depends(pagination)):
     stmt = select(Client).order_by(Client.name)
+    if has_projects is not None:  # clients that have projects / clients nobody works for yet
+        with_projects = select(Project.client_id).where(Project.client_id.is_not(None))
+        stmt = stmt.where(Client.id.in_(with_projects) if has_projects else Client.id.not_in(with_projects))
     if q:
         stmt = stmt.where(Client.name.ilike(f"%{q}%") | Client.contact_name.ilike(f"%{q}%") | Client.contact_email.ilike(f"%{q}%"))
     return paged(ctx.db, stmt, page, _client_out)

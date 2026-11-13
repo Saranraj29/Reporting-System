@@ -12,11 +12,12 @@ import ThumbDownFilledIcon from '@mui/icons-material/ThumbDownAlt'
 import ThumbDownIcon from '@mui/icons-material/ThumbDownAltOutlined'
 import ThumbUpFilledIcon from '@mui/icons-material/ThumbUpAlt'
 import ThumbUpIcon from '@mui/icons-material/ThumbUpAltOutlined'
-import { Box, Button, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Drawer, IconButton, Paper, Stack, TextField, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
+import { Box, Button, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogContentText, Drawer, IconButton, Paper, Stack, TextField, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ApiError, api, errorMessage, streamPost } from '../api'
+import { ModalTitle, keepOpen } from './ui'
 import { groupConversations, makeTitle } from '../assistantHistory'
 import type { AssistantConversation, AssistantMessage, AssistantStatus, SourcesCard } from '../types'
 
@@ -191,8 +192,8 @@ function HistoryView({ current, onOpen, onNew, onDeleted }: { current: string | 
       <ErrorAlertLine error={rename.error ?? remove.error} />
       {items.length > 0 && <Button color="error" size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => setConfirm({ id: null, title: '' })}>Delete all chats</Button>}
       <Typography variant="caption" color="text.secondary">Chats are visible only to you and are kept for 30 days.</Typography>
-      <Dialog open={!!confirm} onClose={() => setConfirm(null)}>
-        <DialogTitle>{confirm?.id ? 'Delete this chat?' : 'Delete all chats?'}</DialogTitle>
+      <Dialog open={!!confirm} onClose={keepOpen(() => setConfirm(null))}>
+        <ModalTitle onClose={() => setConfirm(null)}>{confirm?.id ? 'Delete this chat?' : 'Delete all chats?'}</ModalTitle>
         <DialogContent><DialogContentText>{confirm?.id ? `“${confirm.title}” and its answers will be removed. This cannot be undone.` : 'Every chat in your history will be removed. This cannot be undone.'}</DialogContentText></DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirm(null)}>Cancel</Button>

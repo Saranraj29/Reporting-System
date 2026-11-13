@@ -14,7 +14,7 @@ def world(org):
     o.hermes = o.admin.post("/projects", {"name": "Hermes"}).json()
     o.admin.put(f"/projects/{o.apollo['id']}/members", {"user_ids": [o.m1.user_id, o.m2.user_id]}).raise_for_status()
     o.admin.put(f"/projects/{o.hermes['id']}/members", {"user_ids": [o.out.user_id]}).raise_for_status()
-    o.core_project = o.admin.post("/projects", {"name": "Core site", "team_id": o.team["id"]}).json()  # a project of Leo's team, nobody a member yet
+    o.core_project = o.admin.post("/projects", {"name": "Core site", "team_ids": [o.team["id"]]}).json()  # a project of Leo's team, nobody a member yet
     return o
 
 

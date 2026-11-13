@@ -1,7 +1,8 @@
-import { Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material'
+import { Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ApiError, api, errorMessage } from '../api'
+import { ModalTitle, keepOpen } from './ui'
 
 /** One way to delete things. Asks first; if the server says the delete would take something along (code `in_use`), it says exactly what and
  *  asks once more ("Delete anyway"); if the thing cannot be deleted at all (code `has_history`), it says why and offers nothing further. */
@@ -25,8 +26,8 @@ export default function DeleteDialog({ title, description, path, confirmLabel = 
   })
   const failed = remove.error && !(remove.error instanceof ApiError && ['in_use', 'has_history'].includes(remove.error.code))
   return (
-    <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>{title}</DialogTitle>
+    <Dialog open onClose={keepOpen(onClose)} maxWidth="xs" fullWidth>
+      <ModalTitle onClose={onClose}>{title}</ModalTitle>
       <DialogContent>
         <DialogContentText>{description}</DialogContentText>
         {needsConfirm && <Alert severity="warning" sx={{ mt: 2 }}>{needsConfirm}</Alert>}

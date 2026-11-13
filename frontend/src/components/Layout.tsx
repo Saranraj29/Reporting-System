@@ -1,5 +1,8 @@
 import AccountCircleIcon from '@mui/icons-material/AccountCircleOutlined'
 import AddIcon from '@mui/icons-material/Add'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ManageAccountsIcon from '@mui/icons-material/ManageAccountsOutlined'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettingsOutlined'
 import AssessmentIcon from '@mui/icons-material/AssessmentOutlined'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesomeOutlined'
@@ -17,10 +20,11 @@ import TaskIcon from '@mui/icons-material/TaskAltOutlined'
 import TimerIcon from '@mui/icons-material/TimerOutlined'
 import TuneIcon from '@mui/icons-material/TuneOutlined'
 import Diversity3Icon from '@mui/icons-material/Diversity3Outlined'
-import { AppBar, Avatar, Box, ButtonBase, Divider, Drawer, Fab, GlobalStyles, IconButton, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
+import { AppBar, Avatar, Box, ButtonBase, Collapse, Divider, Drawer, Fab, GlobalStyles, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { canOpen } from '../access'
+import { FabContext, type FabRegistration } from '../fab'
 import { NoAccess } from './ui'
 import { useAuth } from '../auth'
 import { initials } from '../format'
@@ -67,6 +71,9 @@ export function Layout() {
   const { pathname } = useLocation()
   const trigger = useRef<HTMLButtonElement>(null)
   const [statusOpen, setStatusOpen] = useState(false)
+  const [fab, setFab] = useState<FabRegistration | null>(null)  // the page may give the floating + its own job (New task...)
+  const [adminOpen, setAdminOpen] = useState(pathname.startsWith('/admin') && pathname !== '/admin/settings')
+  useEffect(() => { if (pathname.startsWith('/admin') && pathname !== '/admin/settings') setAdminOpen(true) }, [pathname])
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
 
   // sidebar: one toggle for every screen. On a laptop it slides away and the page widens (remembered); on a phone it opens over the page.
@@ -110,7 +117,7 @@ export function Layout() {
     nav('/login')
   }
 
-  const link = (i: Item) =>
+  const link = (i: Item, nested = false) =>
     i.show && (
       <ListItemButton
         key={i.to}
@@ -118,7 +125,7 @@ export function Layout() {
         to={i.to}
         end={i.to === '/'}
         sx={{
-          mx: 1.5, mb: 0.5, borderRadius: 2, color: 'text.secondary',
+          mx: 1.5, mb: 0.5, borderRadius: 2, color: 'text.secondary', pl: nested ? 4.5 : undefined,
           '&.active': { bgcolor: 'primary.main', color: '#fff', '& .MuiListItemIcon-root': { color: '#fff' } },
           '&.active:hover': { bgcolor: 'primary.dark' },
         }}
@@ -144,12 +151,18 @@ export function Layout() {
         </Box>
       </Stack>
       <List component="nav" aria-label="Main" sx={{ flex: 1, overflowY: 'auto' }}>
-        {main.map(link)}
+        {main.map((i) => link(i))}
         {admin.some((a) => a.show) && (
           <>
             <Divider sx={{ my: 1.5, mx: 2 }} />
-            <ListSubheader sx={{ bgcolor: 'transparent', lineHeight: '28px', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase' }}>Administration</ListSubheader>
-            {admin.map(link)}
+            <ListItemButton onClick={() => setAdminOpen((o) => !o)} aria-expanded={adminOpen} aria-controls="admin-menu" sx={{ mx: 1.5, mb: 0.5, borderRadius: 2, color: 'text.secondary' }}>
+              <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}><ManageAccountsIcon /></ListItemIcon>
+              <ListItemText primary="Administration" primaryTypographyProps={{ fontWeight: 600, fontSize: 14 }} />
+              {adminOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+            </ListItemButton>
+            <Collapse in={adminOpen} timeout="auto" unmountOnExit>
+              <List id="admin-menu" disablePadding aria-label="Administration">{admin.map((i) => link(i, true))}</List>
+            </Collapse>
           </>
         )}
       </List>
@@ -167,6 +180,7 @@ export function Layout() {
 
   const slide = theme.transitions.create(['margin', 'width'], { duration: theme.transitions.duration.shorter })
   return (
+    <FabContext.Provider value={setFab}>
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       {me?.prefs.compact_tables && <GlobalStyles styles={{ '.MuiTableCell-root': { paddingTop: '6px', paddingBottom: '6px' } }} />}
       {/* a fixed bar is positioned from both edges: with only a width and a left margin it sat at the viewport's right edge, so the docked assistant pushed it off to the right */}
@@ -218,13 +232,14 @@ export function Layout() {
       <Box component="main" sx={{ flex: 1, minWidth: 0, p: { xs: 2, md: 3.5 }, pt: { xs: 10, md: 11 }, pb: { xs: 11, md: 11 }, transition: slide, mr: `${right}px` }}>
         {canOpen(pathname, who) ? <Outlet /> : <NoAccess onHome={() => nav('/')} />}  {/* a page the person has no access to is not shown, and they are told why */}
       </Box>
-      <Tooltip title="Add today's status" placement="left">
-        <Fab color="primary" aria-label="Add daily status" onClick={() => setStatusOpen(true)} sx={{ position: 'fixed', bottom: 24, right: 24 + right, transition: slide, zIndex: 1050 }}>
+      <Tooltip title={fab?.label ?? "Add today's status"} placement="left">
+        <Fab color="primary" aria-label={fab?.label ?? 'Add daily status'} onClick={() => (fab ? fab.run.current() : setStatusOpen(true))} sx={{ position: 'fixed', bottom: 24, right: 24 + right, transition: slide, zIndex: 1050 }}>
           <AddIcon />
         </Fab>
       </Tooltip>
       {hasAssistant && <AssistantPanel open={assistOpen} onClose={() => setAssist(false)} returnFocus={() => trigger.current?.focus()} />}
       <DailyStatusDialog open={statusOpen} onClose={() => setStatusOpen(false)} />
     </Box>
+    </FabContext.Provider>
   )
 }

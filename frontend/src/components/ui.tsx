@@ -96,8 +96,8 @@ export function Empty({ children }: { children: ReactNode }) {
 
 export function ConfirmDialog({ open, title, body, confirmLabel = 'Confirm', onClose, onConfirm, danger, busy }: { open: boolean; title: string; body: ReactNode; confirmLabel?: string; onClose: () => void; onConfirm: () => void; danger?: boolean; busy?: boolean }) {
   return (
-    <Dialog open={open} onClose={onClose}>
-      <DialogTitle>{title}</DialogTitle>
+    <Dialog open={open} onClose={keepOpen(onClose)}>
+      <ModalTitle onClose={onClose}>{title}</ModalTitle>
       <DialogContent>{body}</DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
@@ -115,6 +115,21 @@ export function ReportFrame({ html, height = 760 }: { html: string; height?: num
 }
 
 /** The search box used on every list: shows a hint until 3 characters are typed (that is when the search request is sent). */
+/** A modal is closed with its Cancel/Close button or the cross, not by a stray click on the dark area around it. Use as `onClose={keepOpen(close)}`. */
+export const keepOpen = (close: () => void) => (_: unknown, reason?: string) => {
+  if (reason !== 'backdropClick') close()
+}
+
+/** The title of a modal, with a cross at the right to close it. */
+export function ModalTitle({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  return (
+    <DialogTitle sx={{ pr: 7 }}>
+      {children}
+      <IconButton aria-label="Close" onClick={onClose} sx={{ position: 'absolute', right: 10, top: 10 }}><CloseIcon fontSize="small" /></IconButton>
+    </DialogTitle>
+  )
+}
+
 /** Props that make a clickable table row / card work from the keyboard too: it can be reached with Tab and opened with Enter or Space. */
 export function clickable(activate: () => void) {
   return {

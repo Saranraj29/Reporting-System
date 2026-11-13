@@ -15,6 +15,7 @@ from ..errors import ApiError, bad_request, conflict, forbidden, not_found
 from ..models import (
     DailyStatus,
     Project,
+    ProjectTeam,
     Task,
     TaskAssignee,
     TaskComment,
@@ -118,15 +119,18 @@ def _task_out(ctx: Ctx, tasks: list[Task]) -> list[dict]:
         ctx.db.execute(select(TimeEntry.task_id, func.sum(TimeEntry.hours)).where(TimeEntry.task_id.in_(ids)).group_by(TimeEntry.task_id)).all()
     )
     projects = dict(ctx.db.execute(select(Project.id, Project.name).where(Project.id.in_({t.project_id for t in tasks}))).all())
-    proj_team = {  # a task's team is its project's team
-        pid: (tid, tname) for pid, tid, tname in ctx.db.execute(
-            select(Project.id, Project.team_id, Team.name).outerjoin(Team, Team.id == Project.team_id).where(Project.id.in_({t.project_id for t in tasks})))
-    }
+    proj_teams: dict[uuid.UUID, list[tuple[str, str]]] = {}  # a task's teams are its project's teams
+    for pid, tid, tname in ctx.db.execute(
+        select(ProjectTeam.project_id, Team.id, Team.name).join(Team, Team.id == ProjectTeam.team_id)
+        .where(ProjectTeam.project_id.in_({t.project_id for t in tasks})).order_by(Team.name)
+    ):
+        proj_teams.setdefault(pid, []).append((str(tid), tname))
     today = company_today(ctx.company.timezone)
     return [
         {
             "id": str(t.id), "updated_at": t.updated_at.isoformat(), "project_id": str(t.project_id), "project_name": projects.get(t.project_id),
-            "team_id": str(proj_team[t.project_id][0]) if proj_team.get(t.project_id, (None,))[0] else None, "team_name": proj_team.get(t.project_id, (None, None))[1],
+            "team_ids": [i for i, _ in proj_teams.get(t.project_id, [])],
+            "team_name": ", ".join(n for _, n in proj_teams.get(t.project_id, [])) or None,
             "title": t.title, "description": t.description, "activity_type": t.activity_type,
             "priority": t.priority, "status": t.status,
             "eta_hours": float(t.eta_hours) if t.eta_hours is not None else None,
@@ -199,8 +203,8 @@ def _assignable_ids(ctx: Ctx, project_id: uuid.UUID) -> set[uuid.UUID] | None:
     if project_id in owned_project_ids(ctx.db, ctx.me.id):
         return allowed | project_people(ctx.db, project_id)
     if ctx.scope_of("task.edit") == "team":
-        team_id = ctx.db.execute(select(Project.team_id).where(Project.id == project_id)).scalar_one_or_none()
-        if team_id and team_id in my_team_ids(ctx.db, ctx.me.id):
+        team_ids = set(ctx.db.execute(select(ProjectTeam.team_id).where(ProjectTeam.project_id == project_id)).scalars())
+        if team_ids & my_team_ids(ctx.db, ctx.me.id):
             return allowed | project_people(ctx.db, project_id)
     return allowed
 
@@ -234,7 +238,7 @@ def list_tasks(
     if assignee:
         stmt = stmt.where(Task.id.in_(select(TaskAssignee.task_id).where(TaskAssignee.user_id == assignee)))
     if team:
-        stmt = stmt.where(Task.project_id.in_(select(Project.id).where(Project.team_id == team)))
+        stmt = stmt.where(Task.project_id.in_(select(ProjectTeam.project_id).where(ProjectTeam.team_id == team)))
     if status:
         stmt = stmt.where(Task.status == status)
     if priority:
@@ -459,9 +463,9 @@ def add_comment(task_id: uuid.UUID, body: CommentIn, ctx: Ctx = Depends(require(
 
 
 # --------------------------------------------------------------------------- time entries
-def _entry_out(e: TimeEntry, title: str | None = None, user_name: str | None = None) -> dict:
+def _entry_out(e: TimeEntry, title: str | None = None, user_name: str | None = None, project_name: str | None = None) -> dict:
     return {
-        "id": str(e.id), "task_id": str(e.task_id), "task_title": title, "user_id": str(e.user_id), "user_name": user_name,
+        "id": str(e.id), "task_id": str(e.task_id), "task_title": title, "project_name": project_name, "user_id": str(e.user_id), "user_name": user_name,
         "hours": float(e.hours), "entry_date": e.entry_date.isoformat(), "note": e.note,
         "started_at": e.started_at.isoformat() if e.started_at else None,
         "stopped_at": e.stopped_at.isoformat() if e.stopped_at else None,
@@ -469,8 +473,9 @@ def _entry_out(e: TimeEntry, title: str | None = None, user_name: str | None = N
     }
 
 
-def _loggable_task(ctx: Ctx, task_id: uuid.UUID) -> Task:
-    """I may log time on tasks I am assigned to (or, with team/all edit scope, tasks I can edit)."""
+def _loggable_task(ctx: Ctx, task_id: uuid.UUID, day: date | None = None) -> Task:
+    """I may log time on tasks I am assigned to (or, with team/all edit scope, tasks I can edit). A finished task takes no timer and no time
+    for today, but work that was done before today (and up to the day it was finished) can still be written down afterwards (`day`)."""
     task = ctx.db.get(Task, task_id)
     if not task:
         raise not_found("Task")
@@ -480,7 +485,10 @@ def _loggable_task(ctx: Ctx, task_id: uuid.UUID) -> Task:
     if not assigned and not (ctx.scope_of("task.edit") in ("team", "all") and _can_edit(ctx, task)):
         raise forbidden("You can only log time on tasks assigned to you")
     if task.status == "done":
-        raise conflict("task_done", "This task is done. Reopen it before logging time or starting a timer.")
+        finished = task.completed_at.astimezone(tzinfo(ctx.company.timezone)).date() if task.completed_at else None
+        if day is None or day >= company_today(ctx.company.timezone) or (finished and day > finished):
+            raise conflict("task_done", "This task is done. Reopen it before logging time or starting a timer. "
+                           "Time for earlier days (up to the day it was finished) can still be added with a past date.")
     return task
 
 
@@ -504,13 +512,13 @@ def _check_day_limit(ctx: Ctx, day: date, hours: Decimal, exclude: uuid.UUID | N
 
 @router.get("/time-entries")
 def list_time_entries(
-    task: uuid.UUID | None = None, user: uuid.UUID | None = None,
+    task: uuid.UUID | None = None, user: uuid.UUID | None = None, project: uuid.UUID | None = None, q: str | None = None,
     from_: date | None = Query(default=None, alias="from"), to: date | None = None,
     ctx: Ctx = Depends(require("task.view")), page: Page = Depends(pagination),
 ):
     stmt = (
-        select(TimeEntry, Task.title, User.name).join(Task, Task.id == TimeEntry.task_id)
-        .join(User, User.id == TimeEntry.user_id).order_by(TimeEntry.entry_date.desc(), TimeEntry.created_at.desc())
+        select(TimeEntry, Task.title, User.name, Project.name.label("project_name")).join(Task, Task.id == TimeEntry.task_id)
+        .join(Project, Project.id == Task.project_id).join(User, User.id == TimeEntry.user_id).order_by(TimeEntry.entry_date.desc(), TimeEntry.created_at.desc())
     )
     ids = ctx.visible("task.view")
     if ids is not None:
@@ -520,13 +528,20 @@ def list_time_entries(
         stmt = stmt.where(TimeEntry.task_id == task)
     if user:
         stmt = stmt.where(TimeEntry.user_id == user)
+    if project:
+        stmt = stmt.where(Task.project_id == project)
+    if q:
+        stmt = stmt.where(Task.title.ilike(f"%{q}%") | TimeEntry.note.ilike(f"%{q}%"))
     if from_:
         stmt = stmt.where(TimeEntry.entry_date >= from_)
     if to:
         stmt = stmt.where(TimeEntry.entry_date <= to)
-    total = ctx.db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar_one()
+    flat = stmt.order_by(None).subquery()
+    total = ctx.db.execute(select(func.count()).select_from(flat)).scalar_one()
+    # the hours of everything the filter matches (not just this page); a running timer has no hours yet
+    total_hours = ctx.db.execute(select(func.coalesce(func.sum(flat.c.hours), 0)).select_from(flat)).scalar_one()
     rows = ctx.db.execute(stmt.limit(page.limit).offset(page.offset)).all()
-    return {"items": [_entry_out(e, t, n) for e, t, n in rows], "total": total, "page": page.page, "limit": page.limit}
+    return {"items": [_entry_out(e, t, n, pn) for e, t, n, pn in rows], "total": total, "total_hours": float(total_hours), "page": page.page, "limit": page.limit}
 
 
 @router.get("/time-entries/running")
@@ -548,11 +563,11 @@ class EntryIn(BaseModel):
 
 @router.post("/time-entries", status_code=201)
 def create_time_entry(body: EntryIn, ctx: Ctx = Depends(require("task.edit"))):
-    task = _loggable_task(ctx, body.task_id)
     today = company_today(ctx.company.timezone)
     day = body.entry_date or today
     if day > today:
         raise bad_request("future_date", "Cannot log time in the future")
+    task = _loggable_task(ctx, body.task_id, day)
     _check_day_limit(ctx, day, Decimal(str(body.hours)))
     e = TimeEntry(company_id=ctx.company_id, task_id=task.id, user_id=ctx.me.id, hours=Decimal(str(body.hours)), entry_date=day, note=body.note)
     ctx.db.add(e)

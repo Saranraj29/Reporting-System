@@ -1,6 +1,5 @@
-import AddIcon from '@mui/icons-material/Add'
 import {
-  Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Grid,
+  Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, Divider, FormControlLabel, Grid,
   LinearProgress, MenuItem, Pagination, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -8,8 +7,9 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { useAuth } from '../auth'
+import { useFab } from '../fab'
 import { TaskPanel } from '../components/TaskPanel'
-import { AssigneeAvatars, Empty, ErrorAlert, PageHeader, PriorityChip, SearchBox, StatusChip, clickable } from '../components/ui'
+import { AssigneeAvatars, Empty, ErrorAlert, ModalTitle, PageHeader, PriorityChip, SearchBox, StatusChip, clickable, keepOpen } from '../components/ui'
 import { change, personOptions, projectOptions, teamOptions, type Sel } from '../filters'
 import { fmtDate, hours } from '../format'
 import { useSearch } from '../hooks'
@@ -42,6 +42,7 @@ export default function Tasks() {
   const [dialog, setDialog] = useState<Task | 'new' | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const canEdit = hasAny('task.edit')
+  useFab(canEdit ? 'New task' : null, () => setDialog('new'))
   const showPeople = (useAuth().me?.permissions ?? []).some((p) => p === 'task.view.team' || p === 'task.view.all')
   // team / project / assignee narrow each other (see filters.ts); picking one clears the others it no longer fits
   const sel: Sel = { team: f.team, project: f.project, user: f.assignee }
@@ -65,7 +66,6 @@ export default function Tasks() {
       <PageHeader
         title="Tasks"
         subtitle={showPeople ? 'Everything your team is working on' : 'Tasks assigned to you'}
-        actions={canEdit && <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialog('new')}>New task</Button>}
       />
       <Paper sx={{ p: 2, mb: 2.5 }}>
         <Grid container spacing={1.5} alignItems="center">
@@ -217,8 +217,8 @@ export function TaskDialog({ task, onClose }: { task: Task | null; onClose: () =
   const customFields = fields.filter((f) => !f.is_builtin && f.is_active)
 
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>{task ? 'Edit task' : 'New task'}</DialogTitle>
+    <Dialog open onClose={keepOpen(onClose)} fullWidth maxWidth="md">
+      <ModalTitle onClose={onClose}>{task ? 'Edit task' : 'New task'}</ModalTitle>
       <DialogContent dividers>
         <Grid container spacing={2} sx={{ pt: 0.5 }}>
           <Grid item xs={12} md={8}>

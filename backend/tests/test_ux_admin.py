@@ -43,11 +43,11 @@ def test_new_people_get_team_member_without_the_ai_assistant(org):
 def test_a_team_belongs_to_a_project_and_its_tasks_inherit_it(work):
     t = work.admin.post("/teams", {"name": "Design", "description": "UI and brand", "lead_user_id": work.lead.user_id}).json()
     assert t["description"] == "UI and brand" and t["open_tasks"] == 0 and t["project_count"] == 0
-    p = work.admin.patch(f"/projects/{work.project['id']}", {"team_id": t["id"]}).json()
-    assert p["team_id"] == t["id"] and p["team_name"] == "Design"
-    created = work.admin.post("/projects", {"name": "Brand site", "team_id": t["id"]}).json()
+    p = work.admin.patch(f"/projects/{work.project['id']}", {"team_ids": [t["id"]]}).json()
+    assert p["team_ids"] == [t["id"]] and p["team_name"] == "Design"
+    created = work.admin.post("/projects", {"name": "Brand site", "team_ids": [t["id"]]}).json()
     assert created["team_name"] == "Design"
-    assert work.admin.post("/projects", {"name": "Bad", "team_id": "00000000-0000-0000-0000-000000000000"}).json()["code"] == "invalid_team"
+    assert work.admin.post("/projects", {"name": "Bad", "team_ids": ["00000000-0000-0000-0000-000000000000"]}).json()["code"] == "invalid_team"
     # no team field on tasks any more: the task shows the team of its project
     assert work.mgr.post("/tasks", {"project_id": work.project["id"], "title": "Logo refresh", "assignee_ids": [work.m1.user_id]}).json()["team_name"] == "Design"
     tasks = work.mgr.get("/tasks", params={"team": t["id"]}).json()["items"]
@@ -59,12 +59,12 @@ def test_a_team_belongs_to_a_project_and_its_tasks_inherit_it(work):
     assert [x["name"] for x in work.admin.get("/projects", params={"team": t["id"]}).json()["items"]] == ["Apollo", "Brand site"]
     assert [x["name"] for x in work.admin.get("/projects", params={"q": "design"}).json()["items"]] == ["Apollo", "Brand site"]
     # clearing it
-    assert work.admin.patch(f"/projects/{work.project['id']}", {"team_id": None}).json()["team_id"] is None
+    assert work.admin.patch(f"/projects/{work.project['id']}", {"team_ids": []}).json()["team_ids"] == []
 
 
 def test_team_filter_on_dashboard_and_reports(work):
     t = work.admin.post("/teams", {"name": "Design"}).json()
-    work.admin.patch(f"/projects/{work.hermes['id']}", {"team_id": t["id"]})  # only Hermes belongs to Design
+    work.admin.patch(f"/projects/{work.hermes['id']}", {"team_ids": [t["id"]]})  # only Hermes belongs to Design
     full = work.admin.get("/dashboard").json()
     only = work.admin.get("/dashboard", params={"team": t["id"]}).json()
     assert only["total_hours"] == 1 and full["total_hours"] == 10  # Hermes logged 1h, everything else 9h
@@ -94,7 +94,7 @@ def team_members(api, team_id):
 
 def test_people_added_to_a_project_join_its_team(org):
     team = org.admin.post("/teams", {"name": "Data"}).json()
-    p = org.admin.post("/projects", {"name": "Pipeline", "team_id": team["id"]}).json()
+    p = org.admin.post("/projects", {"name": "Pipeline", "team_ids": [team["id"]]}).json()
     assert team_members(org.admin, team["id"]) == set()
     assert org.admin.put(f"/projects/{p['id']}/members", {"user_ids": [org.m1.user_id], "owner_ids": [org.lead.user_id]}).status_code == 200
     assert team_members(org.admin, team["id"]) == {org.m1.user_id, org.lead.user_id}  # members and owners both
@@ -111,9 +111,33 @@ def test_moving_a_project_to_a_team_brings_its_members_along(org):
     org.admin.put(f"/projects/{p['id']}/members", {"user_ids": [org.m1.user_id, org.m2.user_id]})
     team = org.admin.post("/teams", {"name": "Web"}).json()
     assert team_members(org.admin, team["id"]) == set()  # a project without a team changes nothing
-    org.admin.patch(f"/projects/{p['id']}", {"team_id": team["id"]}).raise_for_status()
+    org.admin.patch(f"/projects/{p['id']}", {"team_ids": [team["id"]]}).raise_for_status()
     assert team_members(org.admin, team["id"]) == {org.m1.user_id, org.m2.user_id}
     other = org.admin.post("/teams", {"name": "Design"}).json()
-    org.admin.patch(f"/projects/{p['id']}", {"team_id": other["id"]}).raise_for_status()
+    org.admin.patch(f"/projects/{p['id']}", {"team_ids": [other["id"]]}).raise_for_status()
     assert team_members(org.admin, other["id"]) == {org.m1.user_id, org.m2.user_id}
     assert team_members(org.admin, team["id"]) == {org.m1.user_id, org.m2.user_id}  # the old team keeps them
+
+
+# ------------------------------------------------------------------ a project can have several teams
+def test_a_project_can_have_several_teams(org):
+    web = org.admin.post("/teams", {"name": "Web"}).json()
+    design = org.admin.post("/teams", {"name": "Design"}).json()
+    p = org.admin.post("/projects", {"name": "Portal", "team_ids": [web["id"], design["id"], web["id"]]}).json()
+    assert sorted(p["team_ids"]) == sorted([web["id"], design["id"]]) and p["team_name"] == "Design, Web"  # duplicates collapse, names are sorted
+    for t in (web, design):  # the project is listed under each team, and found by either name
+        assert [x["name"] for x in org.admin.get("/projects", params={"team": t["id"]}).json()["items"]] == ["Portal"]
+        assert [x["name"] for x in org.admin.get("/projects", params={"q": t["name"].lower()}).json()["items"]] == ["Portal"]
+        assert next(x for x in org.admin.get("/teams").json()["items"] if x["id"] == t["id"])["project_count"] == 1
+    assert org.admin.post("/projects", {"name": "Bad", "team_ids": [web["id"], "00000000-0000-0000-0000-000000000000"]}).json()["code"] == "invalid_team"
+    # people added to the project join every one of its teams
+    org.admin.put(f"/projects/{p['id']}/members", {"user_ids": [org.m1.user_id]}).raise_for_status()
+    assert team_members(org.admin, web["id"]) == {org.m1.user_id} == team_members(org.admin, design["id"])
+    # dropping a team from the project, then clearing all of them; omitting team_ids changes nothing
+    assert org.admin.patch(f"/projects/{p['id']}", {"team_ids": [design["id"]]}).json()["team_ids"] == [design["id"]]
+    assert org.admin.patch(f"/projects/{p['id']}", {"name": "Portal 2"}).json()["team_ids"] == [design["id"]]
+    assert org.admin.patch(f"/projects/{p['id']}", {"team_ids": []}).json()["team_ids"] == []
+    # deleting a team only takes that team off the project
+    org.admin.patch(f"/projects/{p['id']}", {"team_ids": [web["id"], design["id"]]}).raise_for_status()
+    assert org.admin.delete(f"/teams/{web['id']}", params={"force": "true"}).status_code == 204
+    assert next(x for x in org.admin.get("/projects").json()["items"] if x["id"] == p["id"])["team_ids"] == [design["id"]]

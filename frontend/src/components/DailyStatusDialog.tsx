@@ -1,10 +1,11 @@
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import NightsStayIcon from '@mui/icons-material/NightsStayOutlined'
 import WbSunnyIcon from '@mui/icons-material/WbSunnyOutlined'
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, Paper, Stack, TextField, Typography } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api'
+import { ModalTitle, keepOpen } from './ui'
 import { useAuth } from '../auth'
 import { clock, today } from '../format'
 import type { DailyStatus, Page } from '../types'
@@ -80,8 +81,8 @@ export function DailyStatusForm({ onSaved }: { onSaved?: () => void }) {
 
 export function DailyStatusDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Daily check-in</DialogTitle>
+    <Dialog open={open} onClose={keepOpen(onClose)} fullWidth maxWidth="sm">
+      <ModalTitle onClose={onClose}>Daily check-in</ModalTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           One entry per day with two check-ins — morning plan and end-of-day update — editable until midnight in your company's timezone.

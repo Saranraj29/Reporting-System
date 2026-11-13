@@ -1,18 +1,19 @@
-import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
-import { Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { api } from '../api'
+import { useFab } from '../fab'
 import DeleteDialog from '../components/DeleteDialog'
-import { Empty, ErrorAlert, PageHeader, SearchBox, clickable } from '../components/ui'
+import { Empty, ErrorAlert, ModalTitle, PageHeader, SearchBox, clickable, keepOpen } from '../components/ui'
 import { useSearch, useUsers } from '../hooks'
 import type { Team, UserLite } from '../types'
 
 export default function AdminTeams() {
   const qc = useQueryClient()
   const [del, setDel] = useState<Team | null>(null)
+  useFab('New team', () => open('new'))
   const users = useUsers()
   const search = useSearch()
   const teams = useQuery({ queryKey: ['teams', search.term], queryFn: () => api.get<{ items: Team[] }>('/teams', { q: search.term }), placeholderData: keepPreviousData })
@@ -40,7 +41,6 @@ export default function AdminTeams() {
       <PageHeader title="Teams" subtitle="A team works like a department: you give a team to a project when you create it, and the project's tasks belong to that team" />
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2 }} justifyContent="space-between">
         <SearchBox value={search.input} onChange={search.setInput} placeholder="Search teams" />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => open('new')}>New team</Button>
       </Stack>
       <Stack spacing={1.5}>
         {teams.data?.items.map((t) => (
@@ -65,8 +65,8 @@ export default function AdminTeams() {
       {del && <DeleteDialog title={`Delete ${del.name}?`} description="The team is removed. Its projects are kept, but will no longer belong to a team." path={`/teams/${del.id}`} onClose={() => setDel(null)} onDeleted={() => { qc.invalidateQueries({ queryKey: ['teams'] }); qc.invalidateQueries({ queryKey: ['projects'] }) }} />}
       </Stack>
       {dlg && (
-        <Dialog open onClose={() => setDlg(null)} fullWidth maxWidth="sm">
-          <DialogTitle>{dlg === 'new' ? 'New team' : `Edit ${dlg.name}`}</DialogTitle>
+        <Dialog open onClose={keepOpen(() => setDlg(null))} fullWidth maxWidth="sm">
+          <ModalTitle onClose={() => setDlg(null)}>{dlg === 'new' ? 'New team' : `Edit ${dlg.name}`}</ModalTitle>
           <DialogContent dividers>
             <Stack spacing={2} sx={{ pt: 0.5 }}>
               <TextField label="Team name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required autoFocus />

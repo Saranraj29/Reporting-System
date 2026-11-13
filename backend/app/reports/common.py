@@ -14,7 +14,7 @@ _PROJ = (  # the chosen project, and (a project owner's report) only the project
 )
 _CLIENT = (  # client AND team filters (both optional): the projects of one client / one team
     "(CAST(:client AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE client_id = CAST(:client AS uuid)))"
-    " AND (CAST(:team AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE team_id = CAST(:team AS uuid)))"
+    " AND (CAST(:team AS uuid) IS NULL OR t.project_id IN (SELECT project_id FROM project_teams WHERE team_id = CAST(:team AS uuid)))"
 )
 TASK_FILTER = f"{_TASK_SCOPE} AND {_PROJ} AND {_CLIENT}"
 TIME_FILTER = "(CAST(:uids AS uuid[]) IS NULL OR e.user_id = ANY(CAST(:uids AS uuid[])))"

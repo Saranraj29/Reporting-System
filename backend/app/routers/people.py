@@ -11,7 +11,7 @@ from ..errors import ApiError, bad_request, conflict, not_found
 from ..models import (
     DailyStatus,
     Permission,
-    Project,
+    ProjectTeam,
     Role,
     RolePermission,
     Task,
@@ -404,11 +404,11 @@ def _team_out(ctx: Ctx, teams: list[Team]) -> list[dict]:
         members.setdefault(tid, []).append(str(uid))
     ids = [t.id for t in teams]
     # a team's tasks are the tasks of its projects
-    open_tasks = dict(ctx.db.execute(select(Project.team_id, func.count(Task.id)).join(Task, Task.project_id == Project.id)
-                                     .where(Project.team_id.in_(ids), Task.status != "done").group_by(Project.team_id)).all())
-    all_tasks = dict(ctx.db.execute(select(Project.team_id, func.count(Task.id)).join(Task, Task.project_id == Project.id)
-                                    .where(Project.team_id.in_(ids)).group_by(Project.team_id)).all())
-    project_counts = dict(ctx.db.execute(select(Project.team_id, func.count()).where(Project.team_id.in_(ids)).group_by(Project.team_id)).all())
+    open_tasks = dict(ctx.db.execute(select(ProjectTeam.team_id, func.count(Task.id)).join(Task, Task.project_id == ProjectTeam.project_id)
+                                     .where(ProjectTeam.team_id.in_(ids), Task.status != "done").group_by(ProjectTeam.team_id)).all())
+    all_tasks = dict(ctx.db.execute(select(ProjectTeam.team_id, func.count(Task.id)).join(Task, Task.project_id == ProjectTeam.project_id)
+                                    .where(ProjectTeam.team_id.in_(ids)).group_by(ProjectTeam.team_id)).all())
+    project_counts = dict(ctx.db.execute(select(ProjectTeam.team_id, func.count()).where(ProjectTeam.team_id.in_(ids)).group_by(ProjectTeam.team_id)).all())
     return [
         {"id": str(t.id), "name": t.name, "description": t.description, "lead_user_id": str(t.lead_user_id) if t.lead_user_id else None,
          "member_ids": members.get(t.id, []), "project_count": project_counts.get(t.id, 0),
@@ -436,13 +436,13 @@ def list_teams(q: str | None = None, ctx: Ctx = Depends(get_ctx)):
 
 @router.delete("/teams/{team_id}", status_code=204)
 def delete_team(team_id: uuid.UUID, force: bool = False, ctx: Ctx = Depends(require("project.manage"))):
-    """Delete a team. Its projects are kept (they just have no team any more); with projects attached the person must confirm (force)."""
+    """Delete a team. Its projects are kept (they just lose this team); with projects attached the person must confirm (force)."""
     team = ctx.db.get(Team, team_id)
     if not team:
         raise not_found("Team")
-    n = ctx.db.execute(select(func.count()).select_from(Project).where(Project.team_id == team.id)).scalar_one()
+    n = ctx.db.execute(select(func.count()).select_from(ProjectTeam).where(ProjectTeam.team_id == team.id)).scalar_one()
     if n and not force:
-        raise ApiError(409, "in_use", f"{team.name} has {n} project{'s' if n != 1 else ''}. They are kept, but will no longer belong to a team.", {"projects": n})
+        raise ApiError(409, "in_use", f"{team.name} has {n} project{'s' if n != 1 else ''}. They are kept, but will no longer include this team.", {"projects": n})
     ctx.db.delete(team)
     ctx.db.commit()
 

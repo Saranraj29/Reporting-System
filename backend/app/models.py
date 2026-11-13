@@ -137,10 +137,17 @@ class Project(Base, Stamps):
     company_id: Mapped[uuid.UUID] = _cid()
     name: Mapped[str] = mapped_column(Text)
     client_id: Mapped[uuid.UUID | None] = _fk("clients", True, "SET NULL")
-    team_id: Mapped[uuid.UUID | None] = _fk("teams", True, "SET NULL")  # the team (department) that owns this project; its tasks inherit it
     status: Mapped[str] = mapped_column(Text, default="active")
     start_date: Mapped[date | None] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)
+
+
+class ProjectTeam(Base):
+    """The teams (departments) a project belongs to; a project can have several, and its tasks inherit them."""
+    __tablename__ = "project_teams"
+    company_id: Mapped[uuid.UUID] = _cid()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), primary_key=True)
 
 
 class ProjectMember(Base):

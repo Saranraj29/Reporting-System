@@ -54,7 +54,7 @@ def dashboard(
     p = {"uids": uids, "project": project, "from": start, "to": end, "today": today,
          "owned": owned, "owned_only": owned_only, "widen": widen, "status_uids": s_uids, "team": team}
     proj_t = ("(CAST(:project AS uuid) IS NULL OR t.project_id = CAST(:project AS uuid)) AND "
-              "(CAST(:team AS uuid) IS NULL OR t.project_id IN (SELECT id FROM projects WHERE team_id = CAST(:team AS uuid)))")
+              "(CAST(:team AS uuid) IS NULL OR t.project_id IN (SELECT project_id FROM project_teams WHERE team_id = CAST(:team AS uuid)))")
 
     # 1) tasks ------------------------------------------------------------------------------
     counts = db.execute(

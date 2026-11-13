@@ -33,8 +33,8 @@ export interface Task {
   id: string
   project_id: string
   project_name: string
-  team_id: string | null
-  team_name: string | null
+  team_ids: string[]
+  team_name: string | null  // the project's teams, joined
   title: string
   description: string
   activity_type: string
@@ -55,8 +55,8 @@ export interface Project {
   name: string
   client_id: string | null
   client_name: string | null
-  team_id: string | null
-  team_name: string | null
+  team_ids: string[]  // a project can have several teams
+  team_name: string | null  // their names, joined
   status: string
   start_date: string | null
   end_date: string | null
@@ -99,6 +99,7 @@ export interface TimeEntry {
   id: string
   task_id: string
   task_title: string | null
+  project_name?: string | null
   user_id: string
   user_name: string | null
   hours: number

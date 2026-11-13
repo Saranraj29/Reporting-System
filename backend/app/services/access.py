@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import select, union
 from sqlalchemy.orm import Session
 
-from ..models import Project, ProjectMember, RolePermission, Task, TaskAssignee, Team, TeamMember, UserRole
+from ..models import ProjectMember, ProjectTeam, RolePermission, Task, TaskAssignee, Team, TeamMember, UserRole
 from ..perms import best_scope
 
 _CACHE: dict[uuid.UUID, tuple[float, frozenset[str]]] = {}
@@ -85,7 +85,7 @@ def task_project_ids(db: Session, user_id: uuid.UUID, scope: str | None) -> set[
     if scope == "team":
         teams = my_team_ids(db, user_id)
         if teams:
-            ids |= set(db.execute(select(Project.id).where(Project.team_id.in_(teams))).scalars())
+            ids |= set(db.execute(select(ProjectTeam.project_id).where(ProjectTeam.team_id.in_(teams))).scalars())
     return ids
 
 
@@ -101,7 +101,7 @@ def visible_project_ids(db: Session, user_id: uuid.UUID, perms: frozenset[str]) 
     if scope == "team":
         teams = my_team_ids(db, user_id)
         if teams:
-            ids |= set(db.execute(select(Project.id).where(Project.team_id.in_(teams))).scalars())
+            ids |= set(db.execute(select(ProjectTeam.project_id).where(ProjectTeam.team_id.in_(teams))).scalars())
     return ids
 
 
@@ -112,5 +112,5 @@ def visible_team_ids(db: Session, user_id: uuid.UUID, perms: frozenset[str]) -> 
         return None
     teams = my_team_ids(db, user_id)
     if project_ids:
-        teams |= {t for t in db.execute(select(Project.team_id).where(Project.id.in_(project_ids), Project.team_id.is_not(None))).scalars()}
+        teams |= set(db.execute(select(ProjectTeam.team_id).where(ProjectTeam.project_id.in_(project_ids))).scalars())
     return teams
